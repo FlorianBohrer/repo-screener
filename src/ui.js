@@ -504,6 +504,43 @@ addEventListener("keydown", e => {
   }
 });
 
+/* ============ Facts for the detail panel (derived from file-level imports) ============ */
+function nodeFacts(id) {
+  const n = heurNode(id); if (!n || n.kind !== "comp") return null;
+  const key = n.key, inComp = p => A.fileComp.get(p) === key;
+  const labelOfKey = k => A.nodes.find(x => x.key === k)?.label || k;
+  const own = new Set(n.files.map(f => f.path));
+  const usedBy = new Map(), uses = new Map(), fileIn = new Map(); let testImporters = new Set();
+  for (const [from, to] of A.fileEdges) {
+    const fIn = inComp(from), tIn = inComp(to);
+    if (tIn && !fIn) {
+      if (isTest(from)) testImporters.add(from);
+      else { const k = A.fileComp.get(from); usedBy.set(k, (usedBy.get(k) || 0) + 1); if (!fileIn.has(to)) fileIn.set(to, new Set()); fileIn.get(to).add(from); }
+    }
+    if (fIn && !tIn && !isTest(from)) { const k = A.fileComp.get(to); uses.set(k, (uses.get(k) || 0) + 1); }
+    if (tIn && fIn && isTest(from)) testImporters.add(from);
+  }
+  /* most used files: importers from other components */
+  const hot = [...fileIn.entries()].map(([p, set]) => ({ p, n: set.size, comps: new Set([...set].map(f => A.fileComp.get(f))).size })).sort((a, b) => b.n - a.n).slice(0, 5);
+  /* packages this component imports (npm / Python), by number of files */
+  const pk = new Map();
+  for (const f of own) if (!isTest(f)) for (const sp of (DATA.imports?.[f] || [])) {
+    if (!sp.startsWith("pkg:")) continue;
+    const name = sp.slice(4).split("/").slice(0, sp.slice(4).startsWith("@") ? 2 : 1).join("/");
+    pk.set(name, (pk.get(name) || 0) + 1);
+  }
+  const packages = [...pk.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  /* coupling: fan-in / fan-out across components, instability = out / (in + out) */
+  const ca = usedBy.size, ce = uses.size, inst = ca + ce ? ce / (ca + ce) : null;
+  /* tests */
+  const src = n.files.filter(f => isCode(f.path) && !isTest(f.path)), tests = n.files.filter(f => isTest(f.path));
+  /* subfolders */
+  const sub = new Map(); if (n.isDir) n.files.forEach(f => { const rest = f.path.slice(n.path.length + 1); if (rest.includes("/")) { const d = rest.split("/")[0]; sub.set(d, (sub.get(d) || 0) + 1); } });
+  const big = src.filter(f => f.size > 40000).sort((a, b) => b.size - a.size);
+  return { ca, ce, inst, usedBy: [...usedBy.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => [labelOfKey(k), c]), uses: [...uses.entries()].sort((a, b) => b[1] - a[1]).map(([k, c]) => [labelOfKey(k), c]),
+    hot, packages, src: src.length, tests: tests.length, testImporters: testImporters.size, sub: [...sub.entries()].sort((a, b) => b[1] - a[1]), big };
+}
+
 function select(id) {
   SELECTED = id; LOCK = false; TOUR = null; highlight(id);
   if (!id) { GUIDE = false; closePanel(); return; }
@@ -527,12 +564,14 @@ function select(id) {
   if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Part of"), el("div", { class: "rows" },
     el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Folder"), el("span", { class: "ar" }, "→")))));
   /* Key figures */
+  const facts = MODE === "heur" ? nodeFacts(id) : null;
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
-    body.append(el("div", { class: "tiles" },
+    body.append(el("div", { class: "tiles four" },
       el("div", { class: "tile" }, el("b", {}, fmtInt(files.length)), el("span", {}, "Files")),
       el("div", { class: "tile" }, el("b", {}, fmtBytes(bytes)), el("span", {}, "Size")),
-      el("div", { class: "tile" }, el("b", {}, fmtInt(files.filter(f => isTest(f.path)).length)), el("span", {}, "Tests"))));
+      el("div", { class: "tile" }, el("b", {}, fmtInt(files.filter(f => isTest(f.path)).length)), el("span", {}, "Tests")),
+      facts ? el("div", { class: "tile", title: "Files in other components that import this one" }, el("b", {}, fmtInt(facts.usedBy.reduce((a, [, c]) => a + c, 0))), el("span", {}, "Imported by")) : null));
   }
   /* Path */
   const isDir = an.path ? !A.fileSet.has(an.path) : false;
@@ -541,6 +580,39 @@ function select(id) {
     el("div", { class: "pathbox" }, svgUse(isDir || !an.path ? "i-folder" : "i-file"),
       u ? el("a", { href: u, target: "_blank", rel: "noopener", style: "flex:1" }, an.path) : el("span", { style: "flex:1" }, an.path || (MODE === "ai" ? "External service – no path in the repo" : "/ (root)")),
       u ? svgUse("i-ext") : null)));
+  /* Where it sits: layer and the strongest path from the user through this component */
+  if (MODE === "heur" && EXPLAIN) {
+    const layer = EXPLAIN.layers.find(l => l.nodes.includes(id));
+    const flow = EXPLAIN.flows.find(f => f.path.includes(id));
+    if (layer || flow) {
+      const sec = el("div", { class: "sec" }, el("h4", {}, "Where it sits"));
+      if (layer) sec.append(el("p", { class: "fact" }, el("b", {}, layer.title), " – " + layer.desc.replace(/\.$/, "") + "."));
+      if (flow) {
+        const cut = flow.path.slice(0, flow.path.indexOf(id) + 1);
+        sec.append(el("button", { class: "gflow compact", type: "button", onclick: () => showPath(cut) }, el("span", { class: "fh" }, "Path from the entry point"), pathChips(cut), el("span", { class: "fx" }, "Tap to highlight it on the canvas")));
+      }
+      body.append(sec);
+    }
+  }
+  /* Coupling: how risky a change here is */
+  if (facts && (facts.ca || facts.ce)) {
+    const pct = Math.round((facts.inst ?? 0) * 100);
+    const verdict = facts.inst === null ? "" : facts.inst <= 0.3 ? "Stable foundation – many parts depend on it, so changes ripple outward. Change it carefully and keep its interface steady." : facts.inst >= 0.7 ? "Leaf – it depends on others but little depends on it, so it is relatively safe to change." : "Connector – it both uses and is used by other parts; changes can travel in both directions.";
+    body.append(el("div", { class: "sec" }, el("h4", {}, "Coupling"),
+      el("div", { class: "coup" },
+        el("div", {}, el("b", {}, fmtInt(facts.ca)), el("span", {}, `component${facts.ca === 1 ? "" : "s"} depend on it`)),
+        el("div", {}, el("b", {}, fmtInt(facts.ce)), el("span", {}, `component${facts.ce === 1 ? "" : "s"} it depends on`))),
+      el("div", { class: "scale", role: "img", "aria-label": `Instability ${pct} percent` }, el("span", { class: "lbl" }, "stable"), el("span", { class: "track" }, el("i", { style: `left:${pct}%` })), el("span", { class: "lbl" }, "leaf")),
+      el("p", { class: "fact" }, verdict)));
+  }
+  /* Tests */
+  if (facts && facts.src) {
+    const direct = facts.tests, ext = facts.testImporters;
+    const ratio = direct / Math.max(1, facts.src);
+    const state = direct || ext ? (ratio >= 0.3 || ext >= 3 ? "ok" : "warn") : "bad";
+    body.append(el("div", { class: "sec" }, el("h4", {}, "Tests"),
+      el("p", { class: "fact state " + state }, el("i"), direct || ext ? `${fmtInt(direct)} test file${direct === 1 ? "" : "s"} in this component (${Math.round(ratio * 100)}% of its ${fmtInt(facts.src)} source files)${ext ? `, ${fmtInt(ext)} test file${ext === 1 ? "" : "s"} import it` : ""}.` : `No tests import this component's ${fmtInt(facts.src)} source files.`)));
+  }
   /* Languages */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
@@ -563,7 +635,15 @@ function select(id) {
   const c1 = conn(MODE === "heur" ? "Uses" : "Connects to", outE, "to"), c2 = conn(MODE === "heur" ? "Used by" : "Connected from", inE, "from");
   if (c1) body.append(c1); if (c2) body.append(c2);
   if (!c1 && !c2) body.append(el("p", { class: "empty-note" }, MODE === "heur" ? "No detected imports to other components." : "No connections."));
+  if (facts?.hot.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Most used files"), el("p", { class: "fact muted" }, "The files other components import most – usually the public face of this component."),
+    el("div", { class: "rows" }, ...facts.hot.map(h => { const fu = repoUrl(h.p, false), short = an.path && h.p.startsWith(an.path + "/") ? h.p.slice(an.path.length + 1) : basename(h.p);
+      return el("div", { class: "r f" }, el("span", { class: "d", style: `background:${langOf(h.p)[1]}` }), fu ? el("a", { class: "n", href: fu, target: "_blank", rel: "noopener", title: h.p }, short) : el("span", { class: "n", title: h.p }, short), el("span", { class: "v" }, `${h.n} importer${h.n === 1 ? "" : "s"} · ${h.comps} comp.`)); }))));
+  if (facts?.packages.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Packages it uses"),
+    el("div", { class: "chips" }, ...facts.packages.map(([nm, c]) => el("span", { class: "chip mono", title: `imported in ${c} file${c === 1 ? "" : "s"}` }, nm, el("small", {}, " " + c))))));
+  if (facts?.sub.length > 1) body.append(el("div", { class: "sec" }, el("h4", {}, `Subfolders · ${facts.sub.length}`),
+    el("div", { class: "chips" }, ...facts.sub.slice(0, 16).map(([d, c]) => el("span", { class: "chip mono" }, d, el("small", {}, " " + c))))));
   /* Largest files */
+  if (facts?.big.length) body.append(el("p", { class: "fact state warn" }, el("i"), `${facts.big.length} large source file${facts.big.length === 1 ? "" : "s"} (over 40 KB), e.g. ${basename(facts.big[0].path)} with ${fmtBytes(facts.big[0].size)} – a candidate for splitting.`));
   if (files.length) {
     body.append(el("div", { class: "sec" }, el("h4", {}, "Largest files"), el("div", { class: "rows" }, ...[...files].sort((a, b) => b.size - a.size).slice(0, 7).map(f => {
       const fu = repoUrl(f.path, false); const short = an.path && f.path.startsWith(an.path + "/") ? f.path.slice(an.path.length + 1) : f.path;
@@ -777,19 +857,59 @@ function zoomTreemap(path, d) {
 
 /* ============ File tree ============ */
 let openDirs = new Set();
+let FILE_SORT = "name", FILE_DIR = "";
+function fileTree(list) {
+  const tree = { c: new Map(), size: 0, n: 0 };
+  for (const f of list) { let cur = tree; const segs = f.path.split("/"); cur.size += f.size; cur.n++;
+    segs.forEach((s, i) => { if (i === segs.length - 1) { cur.c.set(s, { f }); return; } if (!cur.c.has(s)) cur.c.set(s, { c: new Map(), size: 0, n: 0 }); cur = cur.c.get(s); cur.size += f.size; cur.n++; }); }
+  return tree;
+}
+const sortEntries = entries => entries.sort((a, b) => (!!b[1].c - !!a[1].c) || (FILE_SORT === "size" ? (b[1].c ? b[1].size : b[1].f.size) - (a[1].c ? a[1].size : a[1].f.size) : a[0].localeCompare(b[0])));
+/* main language of a folder, for its meta line */
+const mainLang = node => { const m = new Map(); const walk = n => n.c.forEach(ch => ch.c ? walk(ch) : m.set(langOf(ch.f.path)[0], (m.get(langOf(ch.f.path)[0]) || 0) + ch.f.size)); walk(node); return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0]; };
 function renderFiles() {
   const q = $("#fileSearch").value.trim().toLowerCase();
   const box = $("#files"); box.textContent = "";
   if (!A) return;
   const match = A.files.filter(f => !q || f.path.toLowerCase().includes(q));
   $("#fileCount").textContent = `${fmtInt(match.length)} of ${fmtInt(A.files.length)} files`;
-  const tree = { c: new Map(), size: 0, n: 0 };
-  for (const f of match) { let cur = tree; const segs = f.path.split("/"); cur.size += f.size; cur.n++;
-    segs.forEach((s, i) => { if (i === segs.length - 1) { cur.c.set(s, { f }); return; } if (!cur.c.has(s)) cur.c.set(s, { c: new Map(), size: 0, n: 0 }); cur = cur.c.get(s); cur.size += f.size; cur.n++; }); }
+  const MOB = MOBILE.matches, crumbs = $("#fileCrumbs");
+  box.classList.toggle("fbrowse", MOB);
+  if (MOB) {
+    crumbs.hidden = !!q; crumbs.textContent = "";
+    if (q) {
+      /* search: flat list of matches with their folder */
+      box.append(el("div", { class: "fsum" }, `${fmtInt(match.length)} match${match.length === 1 ? "" : "es"}`));
+      const sorted = [...match].sort((a, b) => FILE_SORT === "size" ? b.size - a.size : a.path.localeCompare(b.path)).slice(0, 200);
+      for (const f of sorted) box.append(fileRow(basename(f.path), f.path, f, dirname(f.path) || "/"));
+      if (match.length > 200) box.append(el("div", { class: "fsum" }, "Showing the first 200 – refine the filter"));
+      return;
+    }
+    /* browse: one folder at a time */
+    let node = fileTree(A.files);
+    for (const seg of FILE_DIR.split("/").filter(Boolean)) { const nx = node.c.get(seg); if (!nx?.c) { FILE_DIR = ""; node = fileTree(A.files); break; } node = nx; }
+    if (FILE_DIR) crumbs.append(el("button", { type: "button", class: "up", "aria-label": "Up one folder", onclick: () => { FILE_DIR = FILE_DIR.includes("/") ? FILE_DIR.slice(0, FILE_DIR.lastIndexOf("/")) : ""; renderFiles(); } }, "←"));
+    crumbs.append(el("button", { type: "button", onclick: () => { FILE_DIR = ""; renderFiles(); } }, DATA.repo.split("/").pop()));
+    let acc = ""; for (const sg of FILE_DIR.split("/").filter(Boolean)) { acc = acc ? acc + "/" + sg : sg; const pth = acc; crumbs.append(el("span", { class: "s" }, "/"), el("button", { type: "button", onclick: () => { FILE_DIR = pth; renderFiles(); } }, sg)); }
+    crumbs.lastElementChild?.setAttribute("aria-current", "location");
+    box.append(el("div", { class: "fsum" }, `${fmtInt(node.n)} files · ${fmtBytes(node.size)}`));
+    for (const [name, ch] of sortEntries([...node.c.entries()])) {
+      const p = FILE_DIR ? FILE_DIR + "/" + name : name;
+      if (ch.c) {
+        const ml = mainLang(ch);
+        box.append(el("button", { class: "r d", type: "button", role: "listitem", onclick: () => { FILE_DIR = p; renderFiles(); box.scrollTop = 0; } },
+          el("span", { class: "fico" }, svgUse("i-folder")),
+          el("span", { class: "fmain" }, el("span", { class: "fname" }, name), el("span", { class: "fmeta" }, `${fmtInt(ch.n)} file${ch.n === 1 ? "" : "s"}${ml ? " · " + ml : ""}`)),
+          el("span", { class: "fsize" }, fmtBytes(ch.size)), el("span", { class: "ar" }, "›")));
+      } else box.append(fileRow(name, p, ch.f, null));
+    }
+    return;
+  }
+  crumbs.hidden = true;
+  const tree = fileTree(match);
   let rows = 0; const LIMIT = 1500;
   const walk = (node, path, depth) => {
-    const entries = [...node.c.entries()].sort((a, b) => (!!b[1].c - !!a[1].c) || a[0].localeCompare(b[0]));
-    for (const [name, ch] of entries) {
+    for (const [name, ch] of sortEntries([...node.c.entries()])) {
       if (rows++ > LIMIT) return;
       const p = path ? path + "/" + name : name;
       if (ch.c) {
@@ -807,7 +927,20 @@ function renderFiles() {
   walk(tree, "", 0);
   if (rows > LIMIT) box.append(el("div", { class: "r muted" }, "List truncated – use the filter."));
 }
+/* one file row in the phone browser: name, language, component it belongs to, size */
+function fileRow(name, path, f, folder) {
+  const u = repoUrl(path, false), [lang, color] = langOf(path);
+  const comp = A.nodes.find(n => n.key === A.fileComp.get(path));
+  const meta = [folder, lang, comp && comp.kind === "comp" ? comp.label : null, isTest(path) ? "test" : null].filter(Boolean).join(" · ");
+  const row = el(u ? "a" : "div", { class: "r", role: "listitem", ...(u ? { href: u, target: "_blank", rel: "noopener" } : {}) },
+    el("span", { class: "fico" }, svgUse("i-file")),
+    el("span", { class: "fmain" }, el("span", { class: "fname" }, name), el("span", { class: "fmeta" }, el("i", { class: "ld", style: `background:${color}` }), meta)),
+    el("span", { class: "fsize" }, fmtBytes(f.size)));
+  return row;
+}
 $("#fileSearch").addEventListener("input", renderFiles);
+const knobSort = segKnob($("#fileSort"));
+$("#fileSort").addEventListener("click", e => { const b = e.target.closest("button[data-sort]"); if (!b) return; FILE_SORT = b.dataset.sort; $("#fileSort").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b)); knobSort(); renderFiles(); });
 
 /* ============ Screening dashboard ============ */
 function renderHealth() {
@@ -874,7 +1007,7 @@ function switchTab(t) {
   moveTabInd(true);
   if (TAB !== "arch" && SELECTED) select(null);
   if (TAB === "tree") renderTreemap();
-  if (TAB === "files") renderFiles();
+  if (TAB === "files") { renderFiles(); requestAnimationFrame(() => knobSort(false)); }
   if (TAB === "health") renderHealth();
   if (TAB === "arch") requestAnimationFrame(() => { knobMode(false); knobDir(false); });
 }
@@ -916,7 +1049,7 @@ function toast(text) { logStart(text); $("#logBody").append(el("div", { class: "
 
 /* ============ Show everything ============ */
 function show(data) {
-  DATA = data; A = analyze(data); AI = null; EXPLAIN = explainArchitecture(A, data); GUIDE = false; TOUR = null; LOCK = false; SELECTED = null; tmRoot = ""; openDirs = new Set();
+  DATA = data; A = analyze(data); AI = null; FILE_DIR = ""; EXPLAIN = explainArchitecture(A, data); GUIDE = false; TOUR = null; LOCK = false; SELECTED = null; tmRoot = ""; openDirs = new Set();
   MODE = "heur";
   panelX.set(1); panelEl.dataset.state = "closed";
   EXT.onShow.forEach(f => f());
@@ -1057,7 +1190,7 @@ $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE)
 })();
 
 /* ============ Resize & theme ============ */
-let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "arch") fitView(true); }, 120); });
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "files") renderFiles(); if (TAB === "arch") fitView(true); }, 120); });
 if (document.fonts?.ready) document.fonts.ready.then(() => { moveTabInd(false); knobMode(false); knobDir(false); });
 
 /* ============ Start ============ */

@@ -19,6 +19,7 @@ A screener and visualizer for code projects. It runs entirely in the browser wit
    - **where to start reading** – entry file, central services, models,
    - **what the authors say** – architecture sections of the README (“How it's built”, “Architecture” …), `docs/architecture.md`, and the relationships from Mermaid diagrams in those docs,
    - a **guided tour** that walks through the diagram stop by stop (← / → keys).
+   The detail panel of a card shows where it sits (layer and path from the entry point), its **coupling** (how many components depend on it and how many it depends on, with a stable ↔ leaf scale and what that means for changes), test coverage, the **most used files** (the component's public face), the **packages it uses**, its subfolders and a warning for very large source files.
    Every card also gets a role description, its header comment (only file headers or the comment above the main export) and the names it exports.
 
 Also:
@@ -46,7 +47,7 @@ Also:
 | Focus the search | `/` or ⌘/Ctrl + K |
 | Pick a suggestion | ↑ / ↓, Enter; Esc closes the list, a second Esc clears the field |
 
-On phones the architecture takes the whole screen: the header shrinks to one row (search behind the magnifier, Folder/Example/Token in the ⋯ menu), the summary folds to a single line, the toolbar keeps only Guide and View, and the detail panel becomes a bottom sheet you can swipe down.
+On phones the treemap shows one level at a time with a sorted list below, and the file view works like a file browser (one folder at a time, sort by name or size, flat search results with their folder). On phones the architecture takes the whole screen: the header shrinks to one row (search behind the magnifier, Folder/Example/Token in the ⋯ menu), the summary folds to a single line, the toolbar keeps only Guide and View, and the detail panel becomes a bottom sheet you can swipe down.
 
 The search field is an accessible combobox: it suggests recently analyzed repos (stored only in your browser) and examples, recognizes pasted GitHub URLs as `owner/repo`, and validates the input inline with a message read out by screen readers.
 
