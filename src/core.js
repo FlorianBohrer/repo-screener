@@ -1,5 +1,5 @@
 "use strict";
-/* ============ Grundlagen ============ */
+/* ============ Basics ============ */
 const $ = s => document.querySelector(s);
 const el = (tag, attrs = {}, ...kids) => {
   const e = document.createElement(tag);
@@ -14,7 +14,7 @@ const svgUse = id => { const s = document.createElementNS("http://www.w3.org/200
 const fmtBytes = b => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(b < 10240 ? 1 : 0) + " KB" : (b / 1048576).toFixed(1) + " MB";
 const fmtInt = n => n.toLocaleString("en-US");
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-/* Farbe als deckendes Hex (Mermaid-classDef verträgt keine Kommas aus rgba) – Alpha wird auf den Inhaltsgrund gemischt */
+/* Color as opaque hex (Mermaid classDef cannot handle the commas in rgba) – alpha is blended onto the surface color */
 function solid(name) {
   const parse = v => { const c = document.createElement("canvas").getContext("2d"); c.fillStyle = "#000"; c.fillStyle = v; const f = c.fillStyle;
     if (f.startsWith("#")) return [parseInt(f.slice(1, 3), 16), parseInt(f.slice(3, 5), 16), parseInt(f.slice(5, 7), 16), 1];
@@ -28,7 +28,7 @@ const basename = p => p.slice(p.lastIndexOf("/") + 1);
 
 const IGNORE_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "out", "target", "vendor", "__pycache__", ".venv", "venv", ".turbo", ".cache", "coverage", ".idea", ".vscode", ".pytest_cache", ".mypy_cache"]);
 
-/* Sprachen: Erweiterung → [Name, Farbe] (Linguist-nahe Farben) */
+/* Languages: extension → [name, color] (colors close to GitHub Linguist) */
 const LANGS = {
   ts:["TypeScript","#3178c6"], tsx:["TypeScript","#3178c6"], mts:["TypeScript","#3178c6"], cts:["TypeScript","#3178c6"],
   js:["JavaScript","#e3c427"], jsx:["JavaScript","#e3c427"], mjs:["JavaScript","#e3c427"], cjs:["JavaScript","#e3c427"],
@@ -53,7 +53,7 @@ const isCode = p => /\.(m?[jt]sx?|[cm]ts|py|go|rs|java|kt|swift|rb|php|cs|c|h|cp
 const isTest = p => /(^|\/)(tests?|__tests__|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]+\.py$|_test\.(go|py)$/i.test(p);
 const isImportable = p => /\.(m?[jt]sx?|[cm]ts|py|vue|svelte)$/i.test(p);
 
-/* ============ Kategorien (Architektur-Schichten) ============ */
+/* ============ Categories (architecture layers) ============ */
 const CATS = {
   frontend:{label:"Frontend / UI", rx:/^(app|pages|components?|ui|views?|screens?|hooks|styles?|public|static|assets|frontend|web|client|features|layouts?|templates|widgets|www|site|mcp-app)$/i},
   backend:{label:"Backend / API", rx:/^(server|api|routes?|controllers?|handlers?|services?|backend|workers?|functions|lambdas?|middleware|jobs|queues?|cmd|grpc|graphql|resolvers|endpoints|proxy)$/i},
@@ -72,7 +72,7 @@ function categorize(compPath, hint) {
   const segs = compPath.split("/");
   for (let i = segs.length - 1; i >= 0; i--) {
     for (const c of CAT_ORDER) if (c !== "config" && c !== "external" && c !== "user" && CATS[c].rx.test(segs[i])) {
-      if (c === "core" && i < segs.length - 1) continue; /* "src/…": nicht pauschal Kern */
+      if (c === "core" && i < segs.length - 1) continue; /* "src/…": not core by default */
       return c;
     }
   }
@@ -87,7 +87,7 @@ function categorize(compPath, hint) {
   return "core";
 }
 
-/* ============ Importe extrahieren & auflösen ============ */
+/* ============ Extracting & resolving imports ============ */
 const JS_IMPORT_RX = /(?:import\s[^'"]*?from\s*|import\s*\(\s*|require\(\s*|export\s[^'"]*?from\s*|^import\s+)['"]([^'"]+)['"]/gm;
 const PY_IMPORT_RX = /^\s*(?:from\s+(\.*[\w.]*)\s+import|import\s+([\w.]+(?:\s*,\s*[\w.]+)*))/gm;
 function extractImports(path, text) {
@@ -104,7 +104,7 @@ function extractImports(path, text) {
       else if (/^(@[\w.-]+\/)?[\w.-]+/.test(sp) && !/^(node:|https?:)/.test(sp)) out.add("pkg:" + sp.split("/").slice(0, sp.startsWith("@") ? 3 : 2).join("/"));
     }
   }
-  /* API-Basis-URLs aus Umgebungs- und Konfigurationsdateien */
+  /* API base URLs from environment and config files */
   if (/(environ|config|settings|constants|\.env)/i.test(path)) {
     for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})(?::\d+)?/gi)) {
       const host = m[1].toLowerCase();
@@ -114,14 +114,14 @@ function extractImports(path, text) {
   return [...out];
 }
 
-/* ============ Was der Autor sagt: Kommentar am Dateianfang und exportierte Namen ============ */
+/* ============ What the author says: header comment and exported names ============ */
 const NOISE_DOC = /(licen[cs]e|copyright|eslint|prettier|@ts-|tslint|jshint|istanbul|biome-ignore|^\s*(src|app)\/[\w./-]+\s*$|generated|do not edit|auto-?generated)/i;
 function extractMeta(path, text) {
   const head = text.slice(0, 6000);
   let doc = "";
   if (/\.py$/i.test(path)) { const m = head.match(/^\s*(?:#[^\n]*\n\s*)*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')/); if (m) doc = m[1]; }
   if (!doc) {
-    /* nur Kopfkommentar (vor dem ersten Code) oder Kommentar direkt über dem Haupt-Export – keine Kommentare an einzelnen Feldern */
+    /* only a header comment (before the first code) or the comment directly above the main export – never comments on single fields */
     const firstCode = head.search(/^(?!\s*(import\b|\/\/|\/\*|\*|$|["']use\b))/m);
     for (const m of head.matchAll(/\/\*\*?([\s\S]*?)\*\/|((?:^[ \t]*\/\/[^\n]*\n){2,})/gm)) {
       const after = head.slice(m.index + m[0].length, m.index + m[0].length + 160);
@@ -142,7 +142,7 @@ function extractMeta(path, text) {
 }
 const ARCH_DOC = /^(architecture|ARCHITECTURE|design|DESIGN)\.md$|^docs?\/(architecture|design|overview|structure|how-it-works)\.md$/i;
 
-/* ============ Externe Dienste: Paketnamen → Dienst ============ */
+/* ============ External services: package name → service ============ */
 const EXTERNALS = [
   { id: "auth", label: "Authentication", js: /^(ngx-clerk|@clerk\/|@auth0\/|next-auth|@supabase\/auth|firebase\/auth|@okta\/|keycloak|passport)/, py: /^(authlib|flask_login|django\.contrib\.auth)$/, verb: "authenticates",
     name: sp => /clerk/.test(sp) ? "Clerk" : /auth0/.test(sp) ? "Auth0" : /next-auth/.test(sp) ? "NextAuth" : /okta/.test(sp) ? "Okta" : /keycloak/.test(sp) ? "Keycloak" : /passport/.test(sp) ? "Passport" : "Auth" },
@@ -195,22 +195,22 @@ function resolveImport(from, spec, fileSet, aliasRoot) {
   return null;
 }
 
-/* ============ Analyse ============ */
+/* ============ Analysis ============ */
 const ENTRY_FILE = /(^|\/)(main\.(t|j)sx?|index\.(t|j)sx?|app\.(t|j)sx?|App\.(t|j)sx?|app\.component\.ts|page\.(t|j)sx?|layout\.(t|j)sx?|main\.py|app\.py|manage\.py|server\.(t|j)s|index\.html|main\.go|main\.rs)$/;
 function analyze(data) {
   const files = data.files.map(([path, size]) => ({ path, size }));
   const fileSet = new Set(files.map(f => f.path));
   const total = files.reduce((a, f) => a + f.size, 0);
 
-  /* Sprachen */
+  /* Languages */
   const lang = new Map();
   for (const f of files) { const [n, c] = langOf(f.path); const o = lang.get(n) || { name: n, color: c, bytes: 0, files: 0 }; o.bytes += f.size; o.files++; lang.set(n, o); }
   const langs = [...lang.values()].sort((a, b) => b.bytes - a.bytes);
 
-  /* ===== Architektur ableiten =====
-     Ziel wie bei einem guten Architekturdiagramm: ~10–16 benannte Bausteine, nach Fachbereich gruppiert,
-     wenige beschriftete Beziehungen, externe Dienste und ein Einstiegspunkt. */
-  /* Quellcode = Code, kein Test, kein Build-Ergebnis, keine Konfig-Datei in der Wurzel */
+  /* ===== Deriving the architecture =====
+     Goal, as in a good architecture diagram: ~10–16 named components grouped by feature area,
+     few labeled relationships, external services and an entry point. */
+  /* Source = code that is not a test, not build output and not a config file in the root */
   const isSrc = p => isCode(p) && !isTest(p) && !/(^|\/)(public|static|dist|build|out|vendor|assets|\.next|coverage)\//.test(p) && !/\.min\.js$/.test(p) && !(!p.includes("/") && /\.config\.|^\./.test(p));
   const codeIn = new Map(), allIn = new Map();
   for (const f of files) { const segs = f.path.split("/"); for (let i = 0; i < segs.length; i++) { const d = segs.slice(0, i).join("/"); allIn.set(d, (allIn.get(d) || 0) + 1); if (isSrc(f.path)) codeIn.set(d, (codeIn.get(d) || 0) + 1); } }
@@ -220,7 +220,7 @@ function analyze(data) {
   const directCode = d => files.filter(f => dirname(f.path) === d && isSrc(f.path)).length;
   const totalCode = codeIn.get("") || 0;
   const TARGET = Math.max(8, Math.min(16, Math.round(5 + Math.sqrt(totalCode) * 0.9)));
-  /* Startpunkt: Wurzel aufteilen; Bausteine sind Ordner, "d/*" steht für die Dateien direkt in d */
+  /* Start by splitting the root; components are folders, "d/*" stands for the files directly in d */
   let comps = new Set([...childDirs(""), "/*"]);
   const codeOf = c => c.endsWith("/*") ? directCode(c === "/*" ? "" : c.slice(0, -2)) : (codeIn.get(c) || 0);
   const codeComps = () => [...comps].filter(c => codeOf(c) > 0).length;
@@ -238,7 +238,7 @@ function analyze(data) {
     }
     if (!done) break;
   }
-  /* Dateien zuordnen (längster passender Baustein) */
+  /* Assign files (longest matching component) */
   const compList = [...comps];
   const compOf = path => {
     let best = "/*", bl = -1;
@@ -250,14 +250,14 @@ function analyze(data) {
     return best;
   };
   const compMap = new Map(), fileComp = new Map();
-  /* Werkzeug-Ordner ohne Quellcode (.vscode, .idea …) gehören zur Projektwurzel */
+  /* Tool folders without source code (.vscode, .idea …) belong to the project root */
   const INFRA_DOT = /^\.(github|gitlab|circleci|githooks|devcontainer|husky)$/;
   const foldIntoRoot = k => k !== "/*" && !k.includes("/") && k.startsWith(".") && !INFRA_DOT.test(k) && !codeIn.get(k);
   for (const f of files) { let k = compOf(f.path); if (foldIntoRoot(k)) k = "/*"; if (!compMap.has(k)) compMap.set(k, { key: k, files: [], bytes: 0 }); const o = compMap.get(k); o.files.push(f); o.bytes += f.size; fileComp.set(f.path, k); }
   const aliasRoot = fileSet.has("tsconfig.json") && files.some(f => f.path.startsWith("src/")) ? "src" : "";
 
-  /* Zentrale Dateien als eigene Knoten (z. B. todo.ts, toast.service.ts, plan.model.ts):
-     Service-, Store- oder Model-Dateien, die von vielen anderen Dateien – vor allem aus anderen Bausteinen – importiert werden. */
+  /* Key files as their own nodes (e.g. todo.ts, toast.service.ts, plan.model.ts):
+     service, store or model files that many other files import – especially files from other components. */
   const importers = new Map();
   for (const [from, specs] of Object.entries(data.imports || {})) {
     if (!fileSet.has(from) || isTest(from)) continue;
@@ -285,7 +285,7 @@ function analyze(data) {
   for (const c of promoted.sort((a, b) => b.score - a.score)) {
     if (taken >= BUDGET) break;
     const host = compMap.get(c.comp); const srcLeft = host.files.filter(f => isSrc(f.path) && f.path !== c.path).length;
-    if (srcLeft < 2 || (perComp.get(c.comp) || 0) >= 2) continue; /* der Ordner muss noch etwas Eigenes behalten */
+    if (srcLeft < 2 || (perComp.get(c.comp) || 0) >= 2) continue; /* the folder must keep something of its own */
     const f = host.files.find(x => x.path === c.path);
     host.files = host.files.filter(x => x !== f); host.bytes -= f.size;
     const key = "f:" + c.path;
@@ -293,7 +293,7 @@ function analyze(data) {
     fileComp.set(c.path, key); perComp.set(c.comp, (perComp.get(c.comp) || 0) + 1); taken++;
   }
 
-  /* Namen: generische Ordnernamen bekommen ihren Fachbereich dazu ("todo/services" → "Todo Services") */
+  /* Names: generic folder names get their feature area prepended ("todo/services" → "Todo Services") */
   const GENERIC = /^(components?|services?|shared|common|models?|utils?|helpers|lib|libs|hooks|store|stores|state|types|api|routes?|controllers?|views?|pages|core|data|features|modules|ui|widgets|handlers?|middleware|schemas?|entities|interfaces|directives|pipes|guards|interceptors|providers|config|constants|assets)$/i;
   const human = s => s.replace(/[-_.]+/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
   const ENTRY = ENTRY_FILE;
@@ -338,7 +338,7 @@ function analyze(data) {
     if (c.key.endsWith("/*") && c.key !== "/*" && mf && ENTRY.test(mf.path)) cat = "frontend";
     return { id: "n" + i, key: c.key, path: real, label, cat, files: c.files, bytes: c.bytes, main: mf ? basename(mf.path) : null, code: c.files.filter(f => isSrc(f.path)).length, isDir: !c.key.endsWith("/*"), domain: domainOf(real), kind: "comp" };
   });
-  /* Reine Konfigurations-/Routing-Bausteine (z. B. app.config.ts, app.routes.ts) gehören zur App-Shell */
+  /* Pure config/routing components (e.g. app.config.ts, app.routes.ts) belong to the app shell */
   const shellNode = nodes.find(n => n.label === "App Shell");
   if (shellNode) nodes = nodes.filter(n => {
     if (n === shellNode || n.kind !== "comp") return true;
@@ -348,16 +348,16 @@ function analyze(data) {
     shellNode.files.push(...n.files); shellNode.bytes += n.bytes; shellNode.code += src.length; n.files.forEach(f => fileComp.set(f.path, shellNode.key));
     return false;
   });
-  /* Gleichnamige Labels eindeutig machen */
+  /* Make duplicate labels unique */
   const seen = new Map(); nodes.forEach(n => seen.set(n.label, (seen.get(n.label) || 0) + 1));
   nodes.forEach(n => { if (seen.get(n.label) > 1 && n.path) n.label = human(n.path.split("/").filter(x => !STRIP.test(x)).slice(-2).join(" ")) || n.label; });
-  /* Gruppen: Fachbereich mit ≥ 2 Bausteinen, sonst Schicht */
+  /* Groups: feature area with ≥ 2 components, otherwise the layer */
   const domCount = new Map(); nodes.forEach(n => { if (n.domain && n.code) domCount.set(n.domain, (domCount.get(n.domain) || 0) + 1); });
   nodes.forEach(n => { n.group = n.domain && domCount.get(n.domain) >= 2 && n.code ? human(n.domain) : CATS[n.cat].label; });
   const nodeByKey = new Map(nodes.map(n => [n.key, n]));
   nodes.forEach(n => { if (n.file) { const p = nodeByKey.get(n.parentKey); n.parentId = p?.id; n.parentLabel = p?.label; if (p) n.group = p.group; } });
 
-  /* Beziehungen aus Importen */
+  /* Relationships from imports */
   const edgeW = new Map(), extUse = new Map(), urlHosts = new Set(); const fileEdges = [];
   let resolved = 0, analysed = 0;
   for (const [from, specs] of Object.entries(data.imports || {})) {
@@ -383,7 +383,7 @@ function analyze(data) {
   }
   const allEdges = [...edgeW.entries()].map(([k, w]) => { const [from, to] = k.split(">"); return { from, to, w }; }).sort((x, y) => y.w - x.w);
 
-  /* Externe Dienste als eigene Knoten */
+  /* External services as their own nodes */
   const realHosts = [...urlHosts].filter(h => !/(googleapis|gstatic|fonts|cdn)/.test(h));
   extUse.forEach(({ x, from }, k) => {
     const id = "x_" + k;
@@ -393,25 +393,25 @@ function analyze(data) {
     nodes.push({ id, key: id, path: "", label, cat: "external", files: [], bytes: 0, main: x.label, code: 0, isDir: false, domain: "", kind: "ext", group: CATS.external.label, verb: x.verb });
     from.forEach((w, fid) => allEdges.push({ from: fid, to: id, w, ext: true }));
   });
-  /* Nutzer → Einstieg (nur bei Oberflächen-Projekten) */
+  /* User → entry point (only for projects with a UI) */
   const hasUi = files.some(f => /\.(html|tsx|jsx|vue|svelte|astro)$/.test(f.path) && !isTest(f.path));
   const SIDE = new Set(["tooling", "tests", "infra", "docs"]);
   const entryNode = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && n.files.some(f => ENTRY.test(f.path) && isSrc(f.path)))
     .sort((x, y) => ((y.cat === "frontend") - (x.cat === "frontend")) || (x.path.split("/").length - y.path.split("/").length) || (y.code - x.code))[0];
   if (hasUi && entryNode) {
-    /* bevorzugt die App-Shell, die die meisten anderen Bausteine einbindet */
+    /* prefer the app shell that pulls in the most other components */
     const outDeg = id => allEdges.filter(e => e.from === id && !e.ext).length;
     const shell = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && /App Shell|Entry Point/.test(n.label)).sort((x, y) => outDeg(y.id) - outDeg(x.id))[0] || entryNode;
     nodes.push({ id: "u_user", key: "u_user", path: "", label: "User", cat: "user", files: [], bytes: 0, main: null, code: 0, isDir: false, domain: "", kind: "user", group: "" });
     allEdges.push({ from: "u_user", to: shell.id, w: 0, user: true });
   }
 
-  /* Beziehungen ausdünnen: pro Quelle die stärksten, dazu alle deutlich starken; Verb nach Ziel */
+  /* Thin out relationships: the strongest per source plus all clearly strong ones; verb chosen by target */
   const DEV_INFRA = /^(scripts?|bin|tools|\.github|\.githooks|\.gitlab|\.circleci|ci|\.devcontainer|\.husky|\.vscode)$/i;
   nodes.forEach(n => { n.side = n.kind === "comp" && (SIDE.has(n.cat) && !(n.cat === "infra" && !DEV_INFRA.test(basename(n.path))) || n.cat === "config" || (n.code === 0 && n.cat !== "frontend")); });
   const byId = new Map(nodes.map(n => [n.id, n]));
   const internalAll = allEdges.filter(e => !e.ext && !e.user && byId.get(e.from).cat !== "config" && byId.get(e.to).cat !== "config");
-  /* Laufzeit-Beziehungen und Nebenschauplätze getrennt ausdünnen, damit Tooling kein Budget verbraucht */
+  /* Thin runtime relationships and side areas separately so tooling does not use up the budget */
   const isSideEdge = e => byId.get(e.from).side || byId.get(e.to).side;
   const internal = internalAll.filter(e => !isSideEdge(e));
   const maxW = Math.max(1, ...internal.map(e => e.w));
@@ -421,27 +421,27 @@ function analyze(data) {
   internal.forEach(e => { if (e.w >= maxW * 0.35) keep.add(e); });
   const compCount = nodes.filter(n => n.kind === "comp" && n.code).length;
   let edges = [...keep].sort((x, y) => y.w - x.w).slice(0, Math.round(compCount * 1.4));
-  /* Transitive Abkürzungen entfernen: a→c fällt weg, wenn a→b→c existiert und a→c schwach ist */
+  /* Remove transitive shortcuts: drop a→c when a→b→c exists and a→c is weak */
   const has2 = (x, y) => edges.some(e => e.from === x && e.to === y);
   edges = edges.filter(e => !(e.w <= 2 && edges.some(m => m.from === e.from && m.to !== e.to && has2(m.to, e.to) && m.w >= e.w)));
-  /* Jeder Laufzeit-Baustein behält seinen stärksten eingehenden Pfeil – sonst wirkt er wie eine lose Wurzel */
+  /* Every runtime component keeps its strongest incoming arrow – otherwise it looks like a loose root */
   nodes.filter(n => n.kind === "comp" && !n.side).forEach(n => {
     if (edges.some(e => e.to === n.id)) return;
     const best = internal.filter(e => e.to === n.id).sort((x, y) => y.w - x.w)[0]; if (best) edges.push(best);
   });
-  /* Konfigurationsziele (environment, config) bekommen höchstens zwei Pfeile */
+  /* Config targets (environment, config) get at most two arrows */
   const isCfg = id => /environ|config|settings|constants/i.test(byId.get(id).path);
   const cfgIn = new Map(); edges.filter(e => isCfg(e.to)).sort((x, y) => y.w - x.w).forEach(e => cfgIn.set(e.to, [...(cfgIn.get(e.to) || []), e]));
   cfgIn.forEach(list => list.slice(2).forEach(e => { edges = edges.filter(x => x !== e); }));
-  /* Einzel-Importe fallen weg, wenn beide Enden ohnehin verbunden sind */
+  /* Single imports are dropped when both ends are connected anyway */
   const deg = id => edges.filter(e => e.from === id || e.to === id).length;
   edges = edges.filter(e => !(e.w === 1 && deg(e.from) > 1 && deg(e.to) > 1 && edges.some(x => x.to === e.to && x !== e)));
-  /* Die Shell ist das Rückgrat: alle Ansichten, die sie einbindet, bleiben sichtbar */
+  /* The shell is the backbone: every view it pulls in stays visible */
   const shellId = allEdges.find(e => e.user)?.to;
   if (shellId) internal.filter(e => e.from === shellId && !edges.includes(e) && byId.get(e.to).cat === "frontend").sort((x, y) => y.w - x.w).slice(0, 8).forEach(e => edges.push(e));
   const sideBySrc = new Map(); internalAll.filter(isSideEdge).forEach(e => { if (!sideBySrc.has(e.from)) sideBySrc.set(e.from, []); sideBySrc.get(e.from).push(e); });
   sideBySrc.forEach(list => edges.push(...list.sort((x, y) => y.w - x.w).slice(0, 2)));
-  /* Externe Dienste: nur die zwei Bausteine, die sie am stärksten nutzen */
+  /* External services: only the two components that use them most */
   const extBy = new Map(); allEdges.filter(e => e.ext).forEach(e => { if (!extBy.has(e.to)) extBy.set(e.to, []); extBy.get(e.to).push(e); });
   const side = e => (SIDE.has(byId.get(e.from).cat) ? 1 : 0);
   extBy.forEach(list => { const l = list.sort((x, y) => side(x) - side(y) || y.w - x.w); edges.push(l[0], ...l.slice(1, 2).filter(e => e.w >= Math.max(2, l[0].w / 3))); });
@@ -504,7 +504,7 @@ function analyze(data) {
   return { compCount, files, fileSet, total, langs, nodes, edges, allEdges, fileEdges, fileComp, nodeByKey, stack: STACK, checks, score, code: code.length, tests: tests.length, analysed, resolved };
 }
 
-/* ============ Mermaid kompilieren ============ */
+/* ============ Compiling to Mermaid ============ */
 function esc(s) { return String(s).replace(/[&]/g, "and").replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;").replace(/#(?!quot;|lt;|gt;)/g, "#35;").replace(/[\[\]{}|]/g, " "); }
 function mixHex(a, b, t) { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const x = p(a), y = p(b); return "#" + x.map((v, i) => Math.round(v * t + y[i] * (1 - t)).toString(16).padStart(2, "0")).join(""); }
 function compileMermaid(ast, dir) {
@@ -548,7 +548,7 @@ function heuristicAst(A) {
 }
 
 
-/* ============ Laden: GitHub ============ */
+/* ============ Loading: GitHub ============ */
 function parseRepo(s) {
   s = s.trim().replace(/\.git$/, "").replace(/\/+$/, "");
   const m = s.match(/(?:github\.com[/:])?([\w.-]+)\/([\w.-]+)(?:\/tree\/([^?#]+))?/);
@@ -587,7 +587,7 @@ async function loadGitHub(input) {
   const req = files.find(f => /(^|\/)requirements\.txt$/.test(f[0]));
   if (req) { try { (await raw(req[0])).split("\n").forEach(l => { const m = l.trim().match(/^([A-Za-z0-9_.-]+)/); if (m && !l.startsWith("#")) deps.push(m[1].toLowerCase()); }); } catch {} }
   logDone(s, `README ${readme ? "read" : "missing"} · ${deps.length} dependencies`);
-  /* Quellcode-Stichprobe: gleichmäßig über Top-Ordner verteilt (wie GitDiagram: begrenzte Auszüge) */
+  /* Source sample: spread evenly across top-level folders (bounded excerpts, as GitDiagram does) */
   const cand = files.filter(f => isImportable(f[0]) && !isTest(f[0]) && f[1] < 200000);
   const buckets = new Map(); cand.forEach(f => { const k = f[0].split("/").slice(0, 2).join("/"); if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(f); });
   const pick = []; const LIMIT = token ? 160 : 220; let round = 0;
@@ -603,7 +603,7 @@ async function loadGitHub(input) {
   return { source: "github", repo: `${p.owner}/${p.repo}`, branch, description: meta.description, files, imports, readme, deps, truncated: tree.truncated, meta: fileMeta, archDoc };
 }
 
-/* ============ Laden: lokaler Ordner ============ */
+/* ============ Loading: local folder ============ */
 async function loadLocal(fileList) {
   const all = [...fileList]; if (!all.length) throw new Error("The folder is empty.");
   logStart();

@@ -1,11 +1,11 @@
-/* ============ Zustand ============ */
+/* ============ State ============ */
 let DATA = null, A = null, MODE = "heur", DIR = "TD", DIR_MODE = "auto", AI = null, SELECTED = null, TAB = "arch";
-/* Optionale Erweiterungen (z. B. ein zweiter Diagramm-Modus) registrieren sich hier */
+/* Optional extensions (e.g. a second diagram mode) register here */
 const EXT = { onShow: [], onLayout: [] };
 const REDUCE = matchMedia("(prefers-reduced-motion: reduce)");
 const currentAst = () => (MODE === "ai" && AI ? AI.ast : heuristicAst(A));
 
-/* ============ Federn (kritisch gedämpft als Standard, unterbrechbar, Geschwindigkeit bleibt erhalten) ============ */
+/* ============ Springs (critically damped by default, interruptible, velocity is preserved) ============ */
 function spring(value, { response = 0.38, damping = 1, eps = 0.2 } = {}) {
   const s = { value, target: value, vel: 0, response, damping, eps, raf: 0, onUpdate: null, onRest: null };
   const step = (() => { let last = 0; return now => {
@@ -29,10 +29,10 @@ function spring(value, { response = 0.38, damping = 1, eps = 0.2 } = {}) {
   s.stop = () => { cancelAnimationFrame(s.raf); s.raf = 0; s.target = s.value; };
   return s;
 }
-const project = (v, d = 0.996) => (v / 1000) * d / (1 - d); /* Apples Schwung-Projektion */
+const project = (v, d = 0.996) => (v / 1000) * d / (1 - d); /* Apple's momentum projection */
 const rubber = (o, dim, c = 0.55) => (o * dim * c) / (dim + c * Math.abs(o));
 
-/* ============ Kopf: Repo, Tabs mit federndem Indikator ============ */
+/* ============ Header: repo, tabs with a spring indicator ============ */
 function repoUrl(path, isDir) {
   if (!DATA || DATA.source === "local") return null;
   const [o, r] = DATA.repo.split("/");
@@ -51,7 +51,7 @@ function moveTabInd(animate = true) {
   const x = b.offsetLeft + 8, w = b.offsetWidth - 16;
   if (animate && tabW.value) { tabX.to(x); tabW.to(w); } else { tabX.set(x); tabW.set(w); }
 }
-/* Segment-Knopf mit federndem Hintergrund */
+/* Segmented control with a spring background */
 function segKnob(seg) {
   const knob = seg.querySelector(".knob"), sx = spring(0, { eps: 0.3, response: 0.32 }), sw = spring(0, { eps: 0.3, response: 0.32 });
   sx.onUpdate = sw.onUpdate = () => { knob.style.transform = `translateX(${sx.value}px)`; knob.style.width = sw.value + "px"; };
@@ -76,11 +76,11 @@ function renderHeader() {
   $("#bArch").textContent = A.compCount; $("#bFiles").textContent = fmtInt(A.files.length); $("#bScore").textContent = A.score;
 }
 
-/* ============ Arbeitsfläche: Layout, Karten, Kanten ============ */
+/* ============ Canvas: layout, cards, edges ============ */
 const CARD_W = 212, CARD_H = 60, CHIP_W = 184, CHIP_H = 34;
 let SHOW_SIDE = false;
-const USE_CLUSTERS = false; /* dagre-Cluster ziehen den Fluss auseinander; Rahmen werden nur gezeichnet, wenn sie frei liegen */
-/* Karten wachsen mit der Zahl ihrer Anschlüsse, damit sich die Linien an der Kante nicht drängen */
+const USE_CLUSTERS = false; /* dagre clusters pull the flow apart; frames are only drawn when they are free of other cards */
+/* Cards grow with their number of ports so lines do not crowd at the edge */
 let PORT_DEG = new Map();
 const PORT_GAP_TD = 22, PORT_GAP_LR = 15;
 const dim = (n, td = DIR === "TD") => {
@@ -89,7 +89,7 @@ const dim = (n, td = DIR === "TD") => {
   const k = PORT_DEG.get(n.id) || 0;
   return td ? { w: Math.max(CARD_W, Math.round(k * PORT_GAP_TD / 0.75)), h: CARD_H } : { w: CARD_W, h: Math.max(CARD_H, Math.round(k * PORT_GAP_LR / 0.75)) };
 };
-/* Zwischenraum zwischen den Ebenen wächst mit der Zahl der Linien, die ihn kreuzen */
+/* The gap between ranks grows with the number of lines crossing it */
 const rankSep = (edges, td) => { const maxDeg = Math.max(0, ...PORT_DEG.values()); return (td ? 46 : 64) + Math.min(td ? 70 : 110, Math.max(0, edges.length - 10) * (td ? 2.2 : 3.2) + maxDeg * 4); };
 const view = { s: spring(1, { eps: 0.0005 }), x: spring(0, { eps: 0.2 }), y: spring(0, { eps: 0.2 }) };
 let viewRaf = 0;
@@ -109,7 +109,7 @@ function renderLegend(ast) {
 }
 function catIcon(cat) { return svgUse("k-" + cat); }
 
-/* Richtung automatisch: beide Layouts probeweise berechnen und das nehmen, das auf diesem Bildschirm größer (lesbarer) passt */
+/* Automatic direction: compute both layouts and use the one that fits this screen larger (more readable) */
 function pickDir(linked, edges) {
   if (!linked.length || typeof dagre === "undefined") return "TD";
   const st = $("#stage"), sw = st.clientWidth || 1200, sh = st.clientHeight || 700;
@@ -131,7 +131,7 @@ function updateDirUi() {
   requestAnimationFrame(() => knobDir());
 }
 
-/* Orthogonaler Pfad mit runden Ecken durch die Stützpunkte */
+/* Orthogonal path with rounded corners through the waypoints */
 function roundPath(v, r = 9) {
   const pts = v.filter((p, i) => i === 0 || Math.abs(p.x - v[i - 1].x) > 0.5 || Math.abs(p.y - v[i - 1].y) > 0.5);
   const q = pts.filter((p, i) => i === 0 || i === pts.length - 1 || !((Math.abs(pts[i - 1].x - p.x) < 0.5 && Math.abs(pts[i + 1].x - p.x) < 0.5) || (Math.abs(pts[i - 1].y - p.y) < 0.5 && Math.abs(pts[i + 1].y - p.y) < 0.5)));
@@ -148,7 +148,7 @@ function roundPath(v, r = 9) {
 function renderCanvas({ animate = true } = {}) {
   if (!A) return;
   const base = currentAst();
-  /* Tooling, Tests, Doku und Entwickler-Infrastruktur sind standardmäßig ausgeblendet (wie in Architekturdiagrammen üblich) */
+  /* Tooling, tests, docs and developer infrastructure are hidden by default (as usual in architecture diagrams) */
   const hideSide = MODE === "heur" && !SHOW_SIDE;
   const hidden = new Set(hideSide ? base.nodes.filter(n => n.side).map(n => n.id) : []);
   const ast = { nodes: base.nodes.map(n => ({ ...n })), edges: base.edges.filter(e => !hidden.has(e.from) && !hidden.has(e.to)) };
@@ -175,7 +175,7 @@ function renderCanvas({ animate = true } = {}) {
   const TD = DIR === "TD";
   updateDirUi();
 
-  /* Fachbereichs-Gruppen (≥ 2 Bausteine) werden als Cluster gelayoutet; Schicht-Gruppen nicht */
+  /* Feature-area groups (≥ 2 components) are laid out as clusters; layer groups are not */
   const groupOf = n => n.group || CATS[n.cat].label;
   const semantic = n => n.kind === "comp" && !extIds.has(n.id) && (MODE === "ai" || (n.group && n.group !== CATS[n.cat].label));
   const groups = new Map();
@@ -200,7 +200,7 @@ function renderCanvas({ animate = true } = {}) {
   let g;
   try {
     if (extIds.size) {
-      /* 1. Durchlauf ohne Dienste ermittelt die Ebenen; 2. Durchlauf schiebt alle Dienste in die letzte Ebene */
+      /* Pass 1 without services finds the ranks; pass 2 pushes all services into the last rank */
       const g0 = layout(null), key = id => Math.round(TD ? g0.node(id).y : g0.node(id).x);
       const levels = [...new Set(linked.filter(n => !extIds.has(n.id)).map(n => key(n.id)))].sort((a, b) => a - b);
       const levelOf = id => g0.hasNode(id) ? levels.indexOf(key(id)) : 0;
@@ -210,7 +210,7 @@ function renderCanvas({ animate = true } = {}) {
   let W = linked.length ? Math.ceil(g.graph().width) : 0, H = linked.length ? Math.ceil(g.graph().height) : 0;
   const pos = new Map(linked.map(n => [n.id, g.node(n.id)]));
 
-  /* Bausteine ohne Verbindung: kompakte Chips in Reihen darunter */
+  /* Components without connections: compact chips in rows below */
   let looseRect = null;
   if (loose.length) {
     const cols = Math.max(2, Math.min(7, Math.floor(((W || 900) - 100) / (CHIP_W + 12))));
@@ -224,7 +224,7 @@ function renderCanvas({ animate = true } = {}) {
   graphSize = { w: W, h: H };
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-  /* Rahmen: Fachbereiche und der Bereich mit den übrigen Bausteinen */
+  /* Frames: feature areas and the area holding the remaining components */
   const frames = [];
   groups.forEach(gr => {
     const bs = gr.members.map(id => { const p = pos.get(id), d = dim(byId.get(id)); return { x0: p.x - d.w / 2, x1: p.x + d.w / 2, y0: p.y - d.h / 2, y1: p.y + d.h / 2 }; });
@@ -241,7 +241,7 @@ function renderCanvas({ animate = true } = {}) {
     frames.push(fr); nodesEl.append(fr.el);
   }
 
-  /* Kanten: orthogonal mit runden Ecken; jede Kante bekommt einen eigenen Anschlusspunkt an der Kartenkante */
+  /* Edges: orthogonal with rounded corners; every edge gets its own port on the card edge */
   const NS = "http://www.w3.org/2000/svg";
   const defs = document.createElementNS(NS, "defs");
   for (const [id, col] of [["arr", "var(--edge)"], ["arrHot", "var(--edge-hot)"]]) {
@@ -251,9 +251,9 @@ function renderCanvas({ animate = true } = {}) {
     m.append(p); defs.append(m);
   }
   svg.append(defs);
-  const P = TD ? "y" : "x", S = TD ? "x" : "y"; /* Hauptachse (Fluss) und Querachse */
+  const P = TD ? "y" : "x", S = TD ? "x" : "y"; /* main axis (flow) and cross axis */
   const routes = ast.edges.map((e, i) => ({ e, i, ed: g.hasEdge(e.from, e.to) ? g.edge(e.from, e.to) : null })).filter(r => r.ed && pos.has(r.e.from) && pos.has(r.e.to));
-  /* Anschlusspunkte verteilen, sortiert nach der Richtung, in die die Kante läuft */
+  /* Distribute ports, sorted by the direction the edge heads to */
   const ports = new Map();
   const assign = (id, list, side) => {
     const n = byId.get(id), d = dim(n), c = pos.get(id)[S], span = (TD ? d.w : d.h) * (n.kind === "user" ? 0.4 : 0.78);
@@ -271,7 +271,7 @@ function renderCanvas({ animate = true } = {}) {
   outs.forEach((l, id) => assign(id, l, ":o")); ins.forEach((l, id) => assign(id, l, ":i"));
   const maxW = Math.max(1, ...ast.edges.map(e => e.w || 1));
   EDGE_ELS = [];
-  /* 1. Stützpunkte bauen; Quersegmente merken, um ihnen danach eigene Spuren zuzuteilen */
+  /* 1. Build waypoints; remember cross segments so they can get their own lanes afterwards */
   const cross = [];
   const built = routes.map(({ e, i, ed }) => {
     const a = pos.get(e.from), b = pos.get(e.to), da = dim(byId.get(e.from)), db = dim(byId.get(e.to));
@@ -288,8 +288,8 @@ function renderCanvas({ animate = true } = {}) {
     }
     return { e, ed, v };
   });
-  /* 2. Spuren: überlappende Quersegmente im selben Zwischenraum bekommen verschiedene Höhen */
-  /* Quersegmente, die im selben Zwischenraum liegen (Mitte < 28 px auseinander), bilden eine Rinne und werden gemeinsam verteilt */
+  /* 2. Lanes: overlapping cross segments in the same gap get different offsets */
+  /* Cross segments in the same gap (centers < 28 px apart) form a channel and are spread out together */
   cross.forEach(c => { c.mid = c.m1[P]; });
   const sortedCross = [...cross].sort((x, y) => x.mid - y.mid), channels = [];
   for (const c of sortedCross) { const ch = channels[channels.length - 1]; if (ch && c.mid - ch.last < 28) { ch.items.push(c); ch.last = c.mid; } else channels.push({ items: [c], last: c.mid }); }
@@ -316,7 +316,7 @@ function renderCanvas({ animate = true } = {}) {
     svg.append(basePath, flow, hit);
     var label = null;
     if (e.label) {
-      /* Beschriftung auf dem längsten Segment in Flussrichtung */
+      /* Label on the longest segment along the flow */
       let best = null; for (let k = 0; k < v.length - 1; k++) { const L = Math.abs(v[k + 1][P] - v[k][P]); if (Math.abs(v[k + 1][S] - v[k][S]) < 1 && (!best || L > best.L)) best = { L, x: (v[k].x + v[k + 1].x) / 2, y: (v[k].y + v[k + 1].y) / 2 }; }
       const lp = best || { x: ed.x, y: ed.y };
       label = el("div", { class: "elabel", style: `left:${lp.x}px;top:${lp.y}px`, title: e.w ? `${e.w} import${e.w === 1 ? "" : "s"}` : "" }, e.label); nodesEl.append(label);
@@ -329,7 +329,7 @@ function renderCanvas({ animate = true } = {}) {
     }
   });
 
-  /* Karten – gestaffelt nach Ebene einblenden */
+  /* Cards – fade in staggered by rank */
   CARD_ELS = new Map();
   const order = [...ast.nodes].sort((a, b) => pos.get(a.id)[P] - pos.get(b.id)[P] || pos.get(a.id)[S] - pos.get(b.id)[S]);
   order.forEach((n, i) => {
@@ -382,13 +382,13 @@ function highlight(id, preview = false) {
   });
 }
 
-/* ============ Pan & Zoom – 1:1 ziehen, Schwung, Scrollen verschiebt, ⌘/Strg + Scrollen zoomt ============ */
+/* ============ Pan & zoom – 1:1 drag, momentum, scroll pans, ⌘/Ctrl + scroll zooms ============ */
 function fitTarget() {
   const st = $("#stage"); if (!graphSize.w) return null;
   const sw = st.clientWidth, sh = st.clientHeight, bottom = 64, minS = sw < 700 ? 0.42 : 0.45;
   const sum = $("#summary"), hud = $(".hud");
   const hudH = (hud?.offsetHeight || 0) + 24, sumW = (sum?.offsetWidth || 0) + 34;
-  /* Variante A: unter der Übersicht, volle Breite · Variante B: rechts neben der Übersicht, volle Höhe */
+  /* Option A: below the summary, full width · option B: right of the summary, full height */
   const sA = Math.min((sw - 40) / graphSize.w, (sh - hudH - bottom) / graphSize.h);
   const sB = sw > 900 ? Math.min((sw - sumW - 24) / graphSize.w, (sh - 70 - bottom) / graphSize.h) : 0;
   if (sB > sA * 1.08) {
@@ -411,7 +411,7 @@ function zoomBy(f, cx, cy, animated = true) {
   const st = $("#stage"); let drag = null;
   st.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
-    view.x.stop(); view.y.stop(); view.s.stop(); /* greift die Fläche mitten im Gleiten */
+    view.x.stop(); view.y.stop(); view.s.stop(); /* catches the canvas mid-glide */
     drag = { target: e.target, x: e.clientX, y: e.clientY, vx: view.x.value, vy: view.y.value, moved: false, hist: [{ x: e.clientX, y: e.clientY, t: e.timeStamp }] };
     st.setPointerCapture(e.pointerId);
   });
@@ -450,8 +450,8 @@ function zoomBy(f, cx, cy, animated = true) {
   $("#zFit").onclick = () => fitView(true);
 })();
 
-/* ============ Detail-Panel – federt von rechts ein, mit Schwung wegziehbar ============ */
-const panelX = spring(1, { eps: 0.002, response: 0.42 }); /* 0 = offen, 1 = geschlossen (Anteil der Breite) */
+/* ============ Detail panel – springs in from the right, can be flicked away ============ */
+const panelX = spring(1, { eps: 0.002, response: 0.42 }); /* 0 = open, 1 = closed (fraction of the width) */
 const panelEl = $("#panel");
 const panelW = () => panelEl.offsetWidth + 24;
 panelX.onUpdate = v => { panelEl.style.transform = `translateX(${(v * panelW()).toFixed(1)}px)`; };
@@ -468,7 +468,7 @@ function closePanel() { panelX.to(1, { damping: 1 }); }
   const move = e => {
     if (!d) return; const W = panelW();
     let off = d.v0 * W + (e.clientX - d.x);
-    if (off < 0) off = rubber(off, W); /* weicher Widerstand nach links */
+    if (off < 0) off = rubber(off, W); /* soft resistance to the left */
     panelX.set(off / W);
     d.hist.push({ x: e.clientX, t: e.timeStamp }); if (d.hist.length > 6) d.hist.shift();
   };
@@ -520,7 +520,7 @@ function select(id) {
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
   if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Part of"), el("div", { class: "rows" },
     el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Folder"), el("span", { class: "ar" }, "→")))));
-  /* Kennzahlen */
+  /* Key figures */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
     body.append(el("div", { class: "tiles" },
@@ -528,14 +528,14 @@ function select(id) {
       el("div", { class: "tile" }, el("b", {}, fmtBytes(bytes)), el("span", {}, "Size")),
       el("div", { class: "tile" }, el("b", {}, fmtInt(files.filter(f => isTest(f.path)).length)), el("span", {}, "Tests"))));
   }
-  /* Pfad */
+  /* Path */
   const isDir = an.path ? !A.fileSet.has(an.path) : false;
   const u = an.path ? repoUrl(an.path, isDir) : null;
   if (an.kind === "comp" || MODE === "ai") body.append(el("div", { class: "sec" }, el("h4", {}, "Path"),
     el("div", { class: "pathbox" }, svgUse(isDir || !an.path ? "i-folder" : "i-file"),
       u ? el("a", { href: u, target: "_blank", rel: "noopener", style: "flex:1" }, an.path) : el("span", { style: "flex:1" }, an.path || (MODE === "ai" ? "External service – no path in the repo" : "/ (root)")),
       u ? svgUse("i-ext") : null)));
-  /* Sprachen */
+  /* Languages */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
     const lang = new Map(); files.forEach(f => { const [n, c] = langOf(f.path); const o = lang.get(n) || { n, c, b: 0 }; o.b += f.size; lang.set(n, o); });
@@ -544,7 +544,7 @@ function select(id) {
     body.append(el("div", { class: "sec" }, el("h4", {}, "Languages"), bar,
       el("div", { class: "rows" }, ...ls.slice(0, 4).map(l => el("div", { class: "r" }, el("span", { class: "d", style: `background:${l.c}` }), el("span", { class: "n" }, l.n), el("span", { class: "v" }, (l.b / bytes * 100).toFixed(0) + "%"))))));
   }
-  /* Verbindungen */
+  /* Connections */
   const outE = ast.edges.filter(e => e.from === id), inE = ast.edges.filter(e => e.to === id);
   const conn = (title, arr, key) => {
     if (!arr.length) return null;
@@ -557,7 +557,7 @@ function select(id) {
   const c1 = conn(MODE === "heur" ? "Uses" : "Connects to", outE, "to"), c2 = conn(MODE === "heur" ? "Used by" : "Connected from", inE, "from");
   if (c1) body.append(c1); if (c2) body.append(c2);
   if (!c1 && !c2) body.append(el("p", { class: "empty-note" }, MODE === "heur" ? "No detected imports to other components." : "No connections."));
-  /* Größte Dateien */
+  /* Largest files */
   if (files.length) {
     body.append(el("div", { class: "sec" }, el("h4", {}, "Largest files"), el("div", { class: "rows" }, ...[...files].sort((a, b) => b.size - a.size).slice(0, 7).map(f => {
       const fu = repoUrl(f.path, false); const short = an.path && f.path.startsWith(an.path + "/") ? f.path.slice(an.path.length + 1) : f.path;
@@ -566,7 +566,7 @@ function select(id) {
   }
   openPanel();
 }
-/* Karte sanft in die Mitte holen (Platz für das Panel lassen) */
+/* Gently bring a card to the center (leaving room for the panel) */
 function centerOn(id) {
   const c = CARD_ELS.get(id); if (!c) return;
   const st = $("#stage"), s = Math.max(view.s.target, 0.8);
@@ -576,7 +576,7 @@ function centerOn(id) {
   view.x.to(free / 2 - cx * s); view.y.to(st.clientHeight / 2 - cy * s);
 }
 
-/* ============ Architektur-Guide & Tour (ohne KI: aus Code und Doku abgeleitet) ============ */
+/* ============ Architecture guide & tour (no AI: derived from code and docs) ============ */
 let EXPLAIN = null, GUIDE = false, TOUR = null, LOCK = false;
 const nodeOf = id => currentAst().nodes.find(n => n.id === id);
 const closeBtn = () => el("button", { class: "close", type: "button", "aria-label": "Close", onclick: () => select(null) }, svgUse("i-x"));
@@ -593,7 +593,7 @@ function highlightPath(ids) {
     if (label) { label.classList.toggle("hot", hot); label.classList.toggle("dim", !hot); }
   });
 }
-/* Kamera auf eine Gruppe von Karten ausrichten (Platz für das Panel lassen) */
+/* Point the camera at a group of cards (leaving room for the panel) */
 function focusNodes(ids) {
   const st = $("#stage"), cs = ids.map(id => CARD_ELS.get(id)).filter(Boolean); if (!cs.length) return;
   const x0 = Math.min(...cs.map(c => parseFloat(c.style.left))), y0 = Math.min(...cs.map(c => parseFloat(c.style.top)));
@@ -725,7 +725,7 @@ function renderTreemap() {
   cr.append(el("button", { type: "button", onclick: () => zoomTreemap("") }, DATA.repo.split("/").pop()));
   if (tmRoot) { let acc = ""; for (const s of tmRoot.split("/")) { acc = acc ? acc + "/" + s : s; const p = acc; cr.append(el("span", { class: "s" }, "/"), el("button", { type: "button", onclick: () => zoomTreemap(p) }, s)); } }
 }
-/* Hineinzoomen: der angeklickte Ordner wächst aus seiner Position auf die volle Fläche */
+/* Zooming in: the clicked folder grows from its position to the full area */
 function zoomTreemap(path, d) {
   const box = $("#tm");
   if (d && !REDUCE.matches) {
@@ -736,7 +736,7 @@ function zoomTreemap(path, d) {
   } else { tmRoot = path; renderTreemap(); }
 }
 
-/* ============ Dateibaum ============ */
+/* ============ File tree ============ */
 let openDirs = new Set();
 function renderFiles() {
   const q = $("#fileSearch").value.trim().toLowerCase();
@@ -770,12 +770,12 @@ function renderFiles() {
 }
 $("#fileSearch").addEventListener("input", renderFiles);
 
-/* ============ Screening-Dashboard ============ */
+/* ============ Screening dashboard ============ */
 function renderHealth() {
   const g = $("#healthGrid"); g.textContent = ""; if (!A) return;
   const C = 2 * Math.PI * 38;
   const bad = A.checks.filter(c => c.s === "bad").length, warn = A.checks.filter(c => c.s === "warn").length, ok = A.checks.filter(c => c.s === "ok").length;
-  const ring = el("svg", {}); ring.outerHTML; /* Platzhalter */
+  const ring = el("svg", {}); ring.outerHTML; /* placeholder */
   const ringWrap = document.createElement("div");
   ringWrap.innerHTML = `<svg class="ring" viewBox="0 0 92 92" aria-hidden="true"><circle class="bg" cx="46" cy="46" r="38"/><circle class="fg" cx="46" cy="46" r="38" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${(C * (1 - A.score / 100)).toFixed(2)}" transform="rotate(-90 46 46)"/></svg>`;
   const fg = ringWrap.querySelector(".fg");
@@ -826,7 +826,7 @@ function countUp(node, to) {
   requestAnimationFrame(f);
 }
 
-/* ============ Tabs & Steuerung ============ */
+/* ============ Tabs & controls ============ */
 function switchTab(t) {
   if (t === TAB) return;
   TAB = t;
@@ -863,7 +863,7 @@ function toggleToken(open) {
 $("#tokenBtn").onclick = e => { e.stopPropagation(); toggleToken(); };
 document.addEventListener("pointerdown", e => { if (!e.target.closest(".anchor") && $("#tokenPop").dataset.open === "true") toggleToken(false); });
 
-/* ============ Analyse-Protokoll (Build-Log) & Toasts ============ */
+/* ============ Analysis log (build log) & toasts ============ */
 let logHide = 0;
 function logStart(title = "Analyzing") {
   clearTimeout(logHide);
@@ -875,7 +875,7 @@ function logFinish(text) { $("#logSt").className = "st ok"; $("#logTitle").textC
 $("#logClose").onclick = () => { $("#log").dataset.open = "false"; };
 function toast(text) { logStart(text); $("#logBody").append(el("div", { class: "row done" }, el("i", {}, "✓"), el("span", {}, text))); logFinish(text); }
 
-/* ============ Alles anzeigen ============ */
+/* ============ Show everything ============ */
 function show(data) {
   DATA = data; A = analyze(data); AI = null; EXPLAIN = explainArchitecture(A, data); GUIDE = false; TOUR = null; LOCK = false; SELECTED = null; tmRoot = ""; openDirs = new Set();
   MODE = "heur";
@@ -885,7 +885,7 @@ function show(data) {
   if (TAB !== "arch") switchTab("arch");
   requestAnimationFrame(() => { renderCanvas(); knobMode(false); knobDir(false); moveTabInd(false); });
 }
-/* ============ Suchfeld: zugängliche Combobox mit Vorschlägen, Live-Erkennung und Animationen ============ */
+/* ============ Search field: accessible combobox with suggestions, live detection and animations ============ */
 const Search = (() => {
   const form = $("#loadForm"), input = $("#repoInput"), list = $("#repoList"), msg = $("#repoMsg"), clear = $("#repoClear"), det = $("#repoDetected");
   const EXAMPLES = ["vercel/next.js", "FlorianBohrer/Todo_App", "ahmedkhaleel2004/gitdiagram", "fastapi/fastapi", "sveltejs/svelte", "supabase/supabase"];
@@ -940,7 +940,7 @@ const Search = (() => {
   function sync() {
     const v = input.value, has = v.trim().length > 0, c = canonical(v);
     form.classList.toggle("has-value", has); clear.hidden = !has;
-    /* eine eingefügte URL wird sichtbar als owner/repo erkannt */
+    /* a pasted URL is visibly recognized as owner/repo */
     const showDet = !!c && c !== v.trim();
     if (showDet && det.textContent !== "→ " + c) { det.textContent = "→ " + c; det.hidden = false; det.style.animation = "none"; void det.offsetWidth; det.style.animation = ""; }
     if (!showDet) det.hidden = true;
@@ -970,7 +970,7 @@ const Search = (() => {
   clear.addEventListener("click", () => { input.value = ""; sync(); setMsg(""); render(); open(true); input.focus(); });
   form.addEventListener("submit", submit);
 
-  /* rollender Platzhalter: wechselt alle 2,8 s das Beispiel (nicht bei reduzierter Bewegung, nicht während der Eingabe) */
+  /* rolling placeholder: switches the example every 2.8 s (not with reduced motion, not while typing) */
   const roll = $("#repoPh .ph-roll"); let ex = 0;
   setInterval(() => {
     if (REDUCE.matches || document.hidden || form.classList.contains("has-value")) return;
@@ -988,7 +988,7 @@ $("#dirInput").addEventListener("change", async e => {
 });
 $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE); };
 
-/* ============ Größe & Theme ============ */
+/* ============ Resize & theme ============ */
 let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "arch") fitView(true); }, 120); });
 if (document.fonts?.ready) document.fonts.ready.then(() => { moveTabInd(false); knobMode(false); knobDir(false); });
 

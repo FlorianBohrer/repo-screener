@@ -1,6 +1,6 @@
-/* ============ Architektur-Guide: Erklärung ohne KI ============
-   Alles hier wird aus den gemessenen Fakten (Bausteine, Importe, Dienste) und aus dem abgeleitet,
-   was die Autoren selbst geschrieben haben (README-Abschnitte, Architektur-Dokumente, Kommentare, Exporte). */
+/* ============ Architecture guide: explanation without AI ============
+   Everything here is derived from measured facts (components, imports, services) and from
+   what the authors wrote themselves (README sections, architecture docs, comments, exports). */
 
 function joinList(items, max = 4) {
   const x = items.filter(Boolean);
@@ -9,7 +9,7 @@ function joinList(items, max = 4) {
 }
 const mdInline = s => s.replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/\[([^\]]+)\]\([^)]*\)/g, "$1").replace(/<[^>]+>/g, "").replace(/\*\*([^*]+)\*\*/g, "$1").replace(/__([^_]+)__/g, "$1").replace(/(^|\s)[*_]([^*_]+)[*_](?=\s|[.,;:!?]|$)/g, "$1$2").trim();
 
-/* Markdown grob in Absätze und Listenpunkte zerlegen (ohne Code-Blöcke, Bilder, Badges, HTML) */
+/* Roughly split Markdown into paragraphs and list items (without code blocks, images, badges, HTML) */
 function mdBlocks(md, maxChars = 900) {
   const clean = md.replace(/```[\s\S]*?```/g, "\n").replace(/<!--[\s\S]*?-->/g, "").replace(/^\s*(\[!\[|!\[|<img|<picture|<p align|<\/?(div|p|a|picture|source)\b).*$/gim, "");
   const out = []; let used = 0;
@@ -23,7 +23,7 @@ function mdBlocks(md, maxChars = 900) {
   }
   return out.filter(b => b.s.length > 14 || (b.t === "li" && b.s.length > 2)).filter(b => !/^[←→↑↓]/.test(b.s));
 }
-/* Abschnitte einer README, die die Architektur beschreiben */
+/* README sections that describe the architecture */
 function archSections(md) {
   if (!md) return [];
   const RX = /(architect|how it'?s built|how it works|how .* works|structure|design|overview|tech(nology)? stack|^stack$|data ?flow|under the hood|components|internals|concepts)/i;
@@ -34,7 +34,7 @@ function archSections(md) {
   }
   return out.slice(0, 3);
 }
-/* Beziehungen aus Mermaid-Diagrammen der Autoren (flowchart/graph) */
+/* Relationships from the authors' Mermaid diagrams (flowchart/graph) */
 function mermaidRelations(md) {
   const rels = [];
   for (const block of (md || "").matchAll(/```mermaid\s*([\s\S]*?)```/g)) {
@@ -65,7 +65,7 @@ function explainArchitecture(A, DATA) {
   const exts = nodes.filter(n => n.kind === "ext");
   const comps = nodes.filter(n => n.kind === "comp");
 
-  /* Art des Projekts */
+  /* Kind of project */
   const FW = ["Next.js", "Angular", "Vue", "Svelte", "React", "NestJS", "Express", "Fastify", "Hono", "FastAPI", "Django"];
   const fw = FW.filter(f => A.stack.includes(f));
   if (fw.includes("Next.js")) fw.splice(fw.indexOf("React"), fw.includes("React") ? 1 : 0);
@@ -77,10 +77,10 @@ function explainArchitecture(A, DATA) {
   const kind = isUi && backendish ? "full-stack web app" : isUi ? "web app" : backendish ? "backend service" : "code project";
   const name = DATA.repo.split("/").pop();
 
-  /* Verben für Fließtext ("authenticates with Clerk" statt "authenticates Clerk") */
+  /* Verbs for running text ("authenticates with Clerk" instead of "authenticates Clerk") */
   const PHRASE = { "authenticates": "authenticates with", "stores data": "stores data in", "uploads": "uploads to", "reports": "reports to", "sends email": "sends email via", "charges": "charges via", "caches": "caches in", "syncs": "syncs with", "streams": "streams to", "uses model": "uses", "reads config": "reads config from", "prompts": "prompts" };
   const phrase = v => PHRASE[v] || v || "uses";
-  /* Ausgehende Beziehungen als Satzteil: "shows A, B and C, and calls D" */
+  /* Outgoing relationships as a phrase: "shows A, B and C, and calls D" */
   const describeOuts = (id, max = 5) => {
     const by = new Map(); outs(id).slice(0, 8).forEach(e => { const v = phrase(e.verb); if (!by.has(v)) by.set(v, []); by.get(v).push(L(e.to)); });
     const parts = [...by.entries()].map(([v, ls]) => `${v} ${joinList(ls, max)}`);
@@ -88,7 +88,7 @@ function explainArchitecture(A, DATA) {
     return parts.length === 1 ? parts[0] : parts.length === 2 ? parts.join(" and ") : parts.slice(0, -1).join(", ") + ", and " + parts[parts.length - 1];
   };
 
-  /* ---------- Zusammenfassung ---------- */
+  /* ---------- Summary ---------- */
   const summary = [];
   const head = `${fw.length ? joinList(fw.slice(0, 2)) + " " : ""}${kind}`;
   summary.push(`${name} is ${/^[AEIOU]/i.test(head) ? "an" : "a"} ${head}${lang ? ` written mainly in ${lang.name} (${Math.round(lang.bytes / codeBytes * 100)}% of the code)` : ""}.`);
@@ -102,14 +102,14 @@ function explainArchitecture(A, DATA) {
   if (exts.length) summary.push(`It talks to ${joinList(exts.map(x => `${x.label}${x.main && x.main !== x.label ? ` (${x.main.split(" ").map(w => w === w.toUpperCase() ? w : w.toLowerCase()).join(" ")})` : ""}`), 5)}.`);
   summary.push(`This view shows ${comps.length} components and ${edges.filter(e => !e.user).length} relationships, derived from ${fmtInt(A.resolved)} resolved imports in ${fmtInt(A.analysed)} files.`);
 
-  /* ---------- Rollen der einzelnen Bausteine ---------- */
+  /* ---------- Role of each component ---------- */
   const childDirs = n => [...new Set(n.files.map(f => f.path.slice(n.path.length + 1)).filter(p => p.includes("/")).map(p => p.split("/")[0]))];
   const human = s => s.replace(/[-_.]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
   const srcFiles = n => n.files.filter(f => isCode(f.path) && !isTest(f.path));
   const docOf = n => {
     const main = n.file ? n.path : srcFiles(n).find(f => basename(f.path) === n.main)?.path;
     if (main && meta[main]?.d) return { d: meta[main].d, file: main };
-    /* bei Ordnern nur eine Datei, die für den ganzen Ordner spricht (index/README-artig), nie ein beliebiger Kommentar */
+    /* for folders, only a file that speaks for the whole folder (index-like), never an arbitrary comment */
     const idx = srcFiles(n).find(f => /(^|\/)(index|mod|__init__|main)\.(m?[jt]sx?|py|rs)$/.test(f.path) && dirname(f.path) === n.path && meta[f.path]?.d);
     return idx ? { d: meta[idx.path].d, file: idx.path } : null;
   };
@@ -146,7 +146,7 @@ function explainArchitecture(A, DATA) {
   };
   const nodeInfo = new Map(nodes.map(n => [n.id, { role: roleOf(n), doc: n.kind === "comp" ? docOf(n) : null, exports: n.kind === "comp" ? exportsOf(n) : [] }]));
 
-  /* ---------- Datenflüsse: stärkster Weg vom Nutzer zu jedem externen Dienst ---------- */
+  /* ---------- Data flows: strongest path from the user to each external service ---------- */
   const roots = user ? [user.id] : comps.filter(n => !ins(n.id).length && outs(n.id).length).sort((a, b) => outs(b.id).length - outs(a.id).length).slice(0, 2).map(n => n.id);
   const bestPath = (target, from) => {
     let best = null, budget = 25000;
@@ -160,14 +160,14 @@ function explainArchitecture(A, DATA) {
   const narrate = path => path.map((id, i) => i === 0 ? L(id) : `${i === 1 ? "" : "which "}${phrase(edges.find(e => e.from === path[i - 1] && e.to === id)?.verb)} ${L(id)}`).reduce((a, s, i) => i === 0 ? s : i === 1 ? `${a} ${s}` : `${a}, ${s}`, "") + ".";
   const flows = [];
   for (const x of exts.slice(0, 4)) for (const r of roots) { const p = bestPath(x.id, r); if (p) { flows.push({ title: `${L(r)} → ${x.label}`, path: p, text: narrate(p) }); break; } }
-  /* Hauptpfad ins Innere: vom Einstieg immer der stärksten Kante folgen */
+  /* Main path inward: from the entry point, always follow the strongest edge */
   if (roots.length) {
     const p = [roots[0]]; let cur = roots[0];
     for (let i = 0; i < 8; i++) { const e = outs(cur).find(e => !p.includes(e.to) && byId.get(e.to)?.kind !== "ext"); if (!e) break; p.push(e.to); cur = e.to; }
     if (p.length > 2 && !flows.some(f => f.path.join() === p.join())) flows.unshift({ title: "Main path through the code", path: p, text: narrate(p) });
   }
 
-  /* ---------- Schichten ---------- */
+  /* ---------- Layers ---------- */
   const layerOf = n => n.kind === "user" ? null : n.kind === "ext" ? "ext" : n.cat === "frontend" ? "ui" : (n.cat === "backend" || (n.file && /(Service|Store|API|Client|Repository|State|Gateway|Facade)$/.test(n.label))) ? "logic" : (n.cat === "core" || n.cat === "config") ? "core" : "other";
   const LAYERS = [
     { k: "ui", title: isUi ? "User interface" : "Entry points", desc: isUi ? "Screens and components the user sees and interacts with." : "Where requests or commands enter the code." },
@@ -178,7 +178,7 @@ function explainArchitecture(A, DATA) {
   ];
   const layers = LAYERS.map(l => ({ ...l, nodes: nodes.filter(n => layerOf(n) === l.k).sort((a, b) => indeg(b.id) - indeg(a.id)).map(n => n.id) })).filter(l => l.nodes.length);
 
-  /* ---------- Lese-Reihenfolge ---------- */
+  /* ---------- Reading order ---------- */
   const start = [];
   const addStart = (n, why) => { if (!n || start.some(s => s.id === n.id)) return; const path = n.file ? n.path : srcFiles(n).find(f => basename(f.path) === n.main)?.path; if (path) start.push({ id: n.id, path, why }); };
   if (shell) addStart(shell, "Where the app starts and decides what to show.");
@@ -188,7 +188,7 @@ function explainArchitecture(A, DATA) {
   hubs.forEach(n => addStart(n, "Heavily used building block – most features import it."));
   start.splice(5);
 
-  /* ---------- Was die Autoren selbst schreiben ---------- */
+  /* ---------- What the authors write themselves ---------- */
   const docs = [];
   for (const sec of archSections(DATA.readme)) docs.push({ title: sec.title, source: "README", blocks: mdBlocks(sec.body), rels: mermaidRelations(sec.body) });
   if (!docs.some(d => d.rels.length)) { const rels = mermaidRelations(DATA.readme); if (rels.length) docs.push({ title: "Diagram in the README", source: "README", blocks: [], rels }); }

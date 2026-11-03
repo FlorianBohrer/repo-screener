@@ -1,8 +1,8 @@
-"""Baut den Repo-Screener.
+"""Builds Repo Screener.
 
-Setzt Oberfläche, Logik und Beispieldaten zu einer einzigen statischen Seite zusammen:
-  public/index.html  – eigenständige Seite (wird auf Vercel ausgeliefert)
-Optionale Erweiterungen in src/ext/ (*.html vor die Seite, *.js als Skript) ergeben zusätzlich  artifact.html.
+Assembles the UI, logic and example data into one static page:
+  public/index.html  – standalone page (served by Vercel)
+Optional extensions in src/ext/ (*.html is prepended to the page, *.js is added as a script) additionally produce artifact.html.
 """
 import json, pathlib
 
@@ -39,4 +39,4 @@ exts = sorted(ext_dir.glob("*.js")) if ext_dir.exists() else []
 if ext_dir.exists():
     pre = "".join(p.read_text(encoding="utf-8") for p in sorted(ext_dir.glob("*.html")))
     (root / "artifact.html").write_text(pre + page("\n".join(p.read_text(encoding="utf-8") for p in exts)), encoding="utf-8")
-print("ok", len(site), "erweiterungen:", len(exts))
+print("ok", len(site), "extensions:", len(exts))
