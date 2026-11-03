@@ -257,6 +257,16 @@ function analyze(data) {
     if (c.key.endsWith("/*") && c.key !== "/*" && mf && ENTRY.test(mf.path)) cat = "frontend";
     return { id: "n" + i, key: c.key, path: real, label, cat, files: c.files, bytes: c.bytes, main: mf ? basename(mf.path) : null, code: c.files.filter(f => isSrc(f.path)).length, isDir: !c.key.endsWith("/*"), domain: domainOf(real), kind: "comp" };
   });
+  /* Reine Konfigurations-/Routing-Bausteine (z. B. app.config.ts, app.routes.ts) gehören zur App-Shell */
+  const shellNode = nodes.find(n => n.label === "App-Shell");
+  if (shellNode) nodes = nodes.filter(n => {
+    if (n === shellNode || n.kind !== "comp") return true;
+    const src = n.files.filter(f => isSrc(f.path));
+    if (!src.length || src.length > 3 || !src.every(f => /\.(config|routes?|providers?)\.(m?[jt]sx?)$/.test(f.path))) return true;
+    if (!(n.path === shellNode.path || dirname(n.path) === shellNode.path || dirname(shellNode.path) === n.path || n.path.startsWith(shellNode.path + "/"))) return true;
+    shellNode.files.push(...n.files); shellNode.bytes += n.bytes; shellNode.code += src.length; n.files.forEach(f => fileComp.set(f.path, shellNode.key));
+    return false;
+  });
   /* Gleichnamige Labels eindeutig machen */
   const seen = new Map(); nodes.forEach(n => seen.set(n.label, (seen.get(n.label) || 0) + 1));
   nodes.forEach(n => { if (seen.get(n.label) > 1 && n.path) n.label = human(n.path.split("/").filter(x => !STRIP.test(x)).slice(-2).join(" ")) || n.label; });
@@ -315,8 +325,13 @@ function analyze(data) {
   }
 
   /* Beziehungen ausdünnen: pro Quelle die stärksten, dazu alle deutlich starken; Verb nach Ziel */
+  const DEV_INFRA = /^(scripts?|bin|tools|\.github|\.githooks|\.gitlab|\.circleci|ci|\.devcontainer|\.husky|\.vscode)$/i;
+  nodes.forEach(n => { n.side = n.kind === "comp" && (SIDE.has(n.cat) && !(n.cat === "infra" && !DEV_INFRA.test(basename(n.path))) || n.cat === "config" || (n.code === 0 && n.cat !== "frontend")); });
   const byId = new Map(nodes.map(n => [n.id, n]));
-  const internal = allEdges.filter(e => !e.ext && !e.user && byId.get(e.from).cat !== "config" && byId.get(e.to).cat !== "config");
+  const internalAll = allEdges.filter(e => !e.ext && !e.user && byId.get(e.from).cat !== "config" && byId.get(e.to).cat !== "config");
+  /* Laufzeit-Beziehungen und Nebenschauplätze getrennt ausdünnen, damit Tooling kein Budget verbraucht */
+  const isSideEdge = e => byId.get(e.from).side || byId.get(e.to).side;
+  const internal = internalAll.filter(e => !isSideEdge(e));
   const maxW = Math.max(1, ...internal.map(e => e.w));
   const keep = new Set();
   const bySrc = new Map(); internal.forEach(e => { if (!bySrc.has(e.from)) bySrc.set(e.from, []); bySrc.get(e.from).push(e); });
@@ -327,10 +342,15 @@ function analyze(data) {
   /* Transitive Abkürzungen entfernen: a→c fällt weg, wenn a→b→c existiert und a→c schwach ist */
   const has2 = (x, y) => edges.some(e => e.from === x && e.to === y);
   edges = edges.filter(e => !(e.w <= 2 && edges.some(m => m.from === e.from && m.to !== e.to && has2(m.to, e.to) && m.w >= e.w)));
+  /* Die Shell ist das Rückgrat: alle Ansichten, die sie einbindet, bleiben sichtbar */
+  const shellId = allEdges.find(e => e.user)?.to;
+  if (shellId) internal.filter(e => e.from === shellId && !edges.includes(e) && byId.get(e.to).cat === "frontend").sort((x, y) => y.w - x.w).slice(0, 8).forEach(e => edges.push(e));
+  const sideBySrc = new Map(); internalAll.filter(isSideEdge).forEach(e => { if (!sideBySrc.has(e.from)) sideBySrc.set(e.from, []); sideBySrc.get(e.from).push(e); });
+  sideBySrc.forEach(list => edges.push(...list.sort((x, y) => y.w - x.w).slice(0, 2)));
   /* Externe Dienste: nur die zwei Bausteine, die sie am stärksten nutzen */
   const extBy = new Map(); allEdges.filter(e => e.ext).forEach(e => { if (!extBy.has(e.to)) extBy.set(e.to, []); extBy.get(e.to).push(e); });
   const side = e => (SIDE.has(byId.get(e.from).cat) ? 1 : 0);
-  extBy.forEach(list => edges.push(...list.sort((x, y) => side(x) - side(y) || y.w - x.w).slice(0, 2)));
+  extBy.forEach(list => { const l = list.sort((x, y) => side(x) - side(y) || y.w - x.w); edges.push(l[0], ...l.slice(1, 2).filter(e => e.w >= Math.max(2, l[0].w / 3))); });
   edges.push(...allEdges.filter(e => e.user));
   const verb = (e) => {
     if (e.user) return "nutzt";
@@ -427,7 +447,7 @@ function compileMermaid(ast, dir) {
 function heuristicAst(A) {
   const linked = new Set(A.edges.flatMap(e => [e.from, e.to]));
   const nodes = A.nodes.filter(n => n.files.length > 0 || n.kind !== "comp").map(n => ({
-    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main,
+    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main, side: n.side, count: n.files.length,
     sub: n.kind === "comp" ? `${fmtInt(n.files.length)} Dateien · ${fmtBytes(n.bytes)}` : "", linked: linked.has(n.id),
   }));
   return { nodes, edges: A.edges.map(e => ({ from: e.from, to: e.to, w: e.w, label: e.verb })) };

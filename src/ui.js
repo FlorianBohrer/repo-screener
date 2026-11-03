@@ -77,8 +77,10 @@ function renderHeader() {
 }
 
 /* ============ Arbeitsfläche: Layout, Karten, Kanten ============ */
-const CARD_W = 232, CARD_H = 94;
-const dim = n => n.kind === "user" ? { w: 124, h: 44 } : { w: CARD_W, h: CARD_H };
+const CARD_W = 212, CARD_H = 60, CHIP_W = 184, CHIP_H = 34;
+let SHOW_SIDE = false;
+const USE_CLUSTERS = false; /* dagre-Cluster ziehen den Fluss auseinander; Rahmen werden nur gezeichnet, wenn sie frei liegen */
+const dim = n => n.kind === "user" ? { w: 118, h: 40 } : n._chip ? { w: CHIP_W, h: CHIP_H } : { w: CARD_W, h: CARD_H };
 const view = { s: spring(1, { eps: 0.0005 }), x: spring(0, { eps: 0.2 }), y: spring(0, { eps: 0.2 }) };
 let viewRaf = 0;
 const applyView = () => { if (viewRaf) return; viewRaf = requestAnimationFrame(() => { viewRaf = 0; $("#canvas").style.transform = `translate(${view.x.value}px,${view.y.value}px) scale(${view.s.value})`; }); };
@@ -87,15 +89,34 @@ let graphSize = { w: 0, h: 0 };
 
 function renderLegend(ast) {
   const lg = $("#legend"); lg.textContent = "";
-  const used = new Set(ast.nodes.map(n => n.cat));
+  const used = new Set(ast.nodes.filter(n => !n._chip).map(n => n.cat));
   for (const c of CAT_ORDER) if (used.has(c)) lg.append(el("span", { style: `--c:var(--c-${c})` }, el("i"), CATS[c].label));
 }
 function catIcon(cat) { return svgUse("k-" + cat); }
 
+/* Orthogonaler Pfad mit runden Ecken durch die Stützpunkte */
+function roundPath(v, r = 9) {
+  const pts = v.filter((p, i) => i === 0 || Math.abs(p.x - v[i - 1].x) > 0.5 || Math.abs(p.y - v[i - 1].y) > 0.5);
+  const q = pts.filter((p, i) => i === 0 || i === pts.length - 1 || !((Math.abs(pts[i - 1].x - p.x) < 0.5 && Math.abs(pts[i + 1].x - p.x) < 0.5) || (Math.abs(pts[i - 1].y - p.y) < 0.5 && Math.abs(pts[i + 1].y - p.y) < 0.5)));
+  let d = `M${q[0].x.toFixed(1)},${q[0].y.toFixed(1)}`;
+  for (let i = 1; i < q.length - 1; i++) {
+    const a = q[i - 1], c = q[i], b = q[i + 1];
+    const d1 = Math.hypot(c.x - a.x, c.y - a.y), d2 = Math.hypot(b.x - c.x, b.y - c.y), rr = Math.min(r, d1 / 2, d2 / 2);
+    const p1 = { x: c.x - (c.x - a.x) / d1 * rr, y: c.y - (c.y - a.y) / d1 * rr }, p2 = { x: c.x + (b.x - c.x) / d2 * rr, y: c.y + (b.y - c.y) / d2 * rr };
+    d += ` L${p1.x.toFixed(1)},${p1.y.toFixed(1)} Q${c.x.toFixed(1)},${c.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+  }
+  const z = q[q.length - 1]; return d + ` L${z.x.toFixed(1)},${z.y.toFixed(1)}`;
+}
+
 function renderCanvas({ animate = true } = {}) {
   if (!A) return;
-  const ast = currentAst();
-  renderLegend(ast);
+  const base = currentAst();
+  /* Tooling, Tests, Doku und Entwickler-Infrastruktur sind standardmäßig ausgeblendet (wie in Architekturdiagrammen üblich) */
+  const hideSide = MODE === "heur" && !SHOW_SIDE;
+  const hidden = new Set(hideSide ? base.nodes.filter(n => n.side).map(n => n.id) : []);
+  const ast = { nodes: base.nodes.map(n => ({ ...n })), edges: base.edges.filter(e => !hidden.has(e.from) && !hidden.has(e.to)) };
+  const sideBtn = $("#sideBtn");
+  if (sideBtn) { const cnt = base.nodes.filter(n => n.side).length; sideBtn.hidden = MODE !== "heur" || !cnt; sideBtn.setAttribute("aria-pressed", SHOW_SIDE); sideBtn.lastChild.textContent = `Tooling & Tests (${cnt})`; }
   const ov = $("#overview");
   if (MODE === "ai" && AI) { ov.hidden = false; ov.textContent = ""; ov.append(el("div", { class: "who" }, AI.who || "Überblick"), el("p", {}, AI.overview || "")); }
   else if (A.analysed === 0) { ov.hidden = false; ov.textContent = ""; ov.append(el("p", { class: "muted" }, "Für dieses Repository wurde kein Quellcode gelesen. Das Diagramm zeigt daher nur die Ordnerstruktur ohne Verbindungen.")); }
@@ -105,66 +126,81 @@ function renderCanvas({ animate = true } = {}) {
   if (typeof dagre === "undefined") { empty.hidden = false; empty.textContent = "Die Layout-Bibliothek konnte nicht geladen werden. Prüfe die Verbindung und lade die Seite neu."; return; }
   empty.hidden = true;
 
-  /* Layout: verbundene Komponenten mit dagre (Gruppen als Cluster), unverbundene kompakt als Raster darunter */
+  const TD = DIR === "TD";
   const linkedIds = new Set(ast.edges.flatMap(e => [e.from, e.to]));
   const linked = ast.nodes.filter(n => linkedIds.has(n.id)), loose = ast.nodes.filter(n => !linkedIds.has(n.id));
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: DIR === "TD" ? "TB" : "LR", nodesep: 30, edgesep: 14, ranksep: DIR === "TD" ? 58 : 76, marginx: 50, marginy: 50 });
-  g.setDefaultEdgeLabel(() => ({}));
-  const groups = new Map();
-  const groupOf = n => n.group || CATS[n.cat].label;
-  for (const n of linked) { if (n.kind === "user") continue; const gl = groupOf(n); if (!groups.has(gl)) groups.set(gl, { id: "grp" + groups.size, label: gl, members: [] }); groups.get(gl).members.push(n.id); }
-  /* Externe Dienste kommen nicht ins dagre-Layout, sondern in eine eigene Zeile am Ende */
+  loose.forEach(n => { n._chip = true; });
+  renderLegend(ast);
+  const byId = new Map(ast.nodes.map(n => [n.id, n]));
   const extIds = new Set(linked.filter(n => n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user")).map(n => n.id));
-  for (const n of linked) { if (extIds.has(n.id)) continue; const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); }
-  /* Beschriftungen bekommen eigenen Platz im Layout, damit sie nichts überdecken */
-  for (const e of ast.edges) if (!extIds.has(e.from) && !extIds.has(e.to)) g.setEdge(e.from, e.to, e.label ? { w: e.w, label: e.label, width: Math.ceil(e.label.length * 6.1 + 16), height: 18, labelpos: "c" } : { w: e.w });
-  if (g.nodeCount()) { try { dagre.layout(g); } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "Das Layout ließ sich nicht berechnen."; return; } }
-  let W = g.nodeCount() ? Math.ceil(g.graph().width) : 0, H = g.nodeCount() ? Math.ceil(g.graph().height) : 0;
-  const pos = new Map(linked.filter(n => !extIds.has(n.id)).map(n => [n.id, g.node(n.id)]));
-  if (extIds.size) {
-    /* Position: unter (bzw. rechts von) den Bausteinen, die den Dienst nutzen; Überlappungen auflösen */
-    const TD = DIR === "TD", gap = TD ? CARD_W + 24 : CARD_H + 20;
-    const want = [...extIds].map(id => { const src = ast.edges.filter(e => e.to === id && pos.has(e.from)).map(e => pos.get(e.from)); return { id, c: src.length ? src.reduce((a, p) => a + (TD ? p.x : p.y), 0) / src.length : (TD ? W : H) / 2 }; }).sort((a, b) => a.c - b.c);
-    for (let i = 1; i < want.length; i++) want[i].c = Math.max(want[i].c, want[i - 1].c + gap);
-    const lane = (H || 0) + (TD ? 40 : 0), laneX = (W || 0) + (TD ? 0 : 60);
-    want.forEach(w => pos.set(w.id, TD ? { x: Math.max(50 + CARD_W / 2, w.c), y: Math.max(lane, 50) + CARD_H / 2 } : { x: Math.max(laneX, 50) + CARD_W / 2, y: Math.max(50 + CARD_H / 2, w.c) }));
-    if (TD) { H = Math.max(H, lane) + CARD_H + 60; W = Math.max(W, ...want.map(w => w.c + CARD_W / 2 + 50)); }
-    else { W = Math.max(W, laneX) + CARD_W + 80; H = Math.max(H, ...want.map(w => w.c + CARD_H / 2 + 50)); }
-  }
+
+  /* Fachbereichs-Gruppen (≥ 2 Bausteine) werden als Cluster gelayoutet; Schicht-Gruppen nicht */
+  const groupOf = n => n.group || CATS[n.cat].label;
+  const semantic = n => n.kind === "comp" && !extIds.has(n.id) && (MODE === "ai" || (n.group && n.group !== CATS[n.cat].label));
+  const groups = new Map();
+  for (const n of linked) if (semantic(n) || (MODE === "ai" && n.kind !== "user" && !extIds.has(n.id))) { const gl = groupOf(n); if (!groups.has(gl)) groups.set(gl, { id: "grp" + groups.size, label: gl, members: [] }); groups.get(gl).members.push(n.id); }
+  for (const [k, gr] of [...groups]) if (gr.members.length < 2) groups.delete(k);
+  const groupIdOf = new Map(); groups.forEach(gr => gr.members.forEach(m => groupIdOf.set(m, gr.id)));
+
+  const layout = extraMinlen => {
+    const g = new dagre.graphlib.Graph({ compound: true });
+    g.setGraph({ rankdir: TD ? "TB" : "LR", nodesep: 34, edgesep: 18, ranksep: TD ? 46 : 64, marginx: 50, marginy: 50 });
+    g.setDefaultEdgeLabel(() => ({}));
+    if (USE_CLUSTERS) groups.forEach(gr => g.setNode(gr.id, {}));
+    for (const n of linked) { if (!extraMinlen && extIds.has(n.id)) continue; const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); if (USE_CLUSTERS && groupIdOf.has(n.id)) g.setParent(n.id, groupIdOf.get(n.id)); }
+    for (const e of ast.edges) {
+      if (!extraMinlen && (extIds.has(e.from) || extIds.has(e.to))) continue;
+      const lab = e.label ? { width: Math.ceil(e.label.length * 6.1 + 16), height: 18, labelpos: "c", label: e.label } : {};
+      g.setEdge(e.from, e.to, { ...lab, minlen: extraMinlen && extIds.has(e.to) ? extraMinlen(e.from) : 1 });
+    }
+    dagre.layout(g);
+    return g;
+  };
+  let g;
+  try {
+    if (extIds.size) {
+      /* 1. Durchlauf ohne Dienste ermittelt die Ebenen; 2. Durchlauf schiebt alle Dienste in die letzte Ebene */
+      const g0 = layout(null), key = id => Math.round(TD ? g0.node(id).y : g0.node(id).x);
+      const levels = [...new Set(linked.filter(n => !extIds.has(n.id)).map(n => key(n.id)))].sort((a, b) => a - b);
+      const levelOf = id => g0.hasNode(id) ? levels.indexOf(key(id)) : 0;
+      g = layout(from => levels.length - levelOf(from));
+    } else g = layout(null);
+  } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "Das Layout ließ sich nicht berechnen."; return; }
+  let W = linked.length ? Math.ceil(g.graph().width) : 0, H = linked.length ? Math.ceil(g.graph().height) : 0;
+  const pos = new Map(linked.map(n => [n.id, g.node(n.id)]));
+
+  /* Bausteine ohne Verbindung: kompakte Chips in Reihen darunter */
+  let looseRect = null;
   if (loose.length) {
-    const cols = Math.max(2, Math.min(6, Math.floor(((W || 1200) - 140) / (CARD_W + 24))));
-    const sorted = [...loose].sort((a, b) => CAT_ORDER.indexOf(a.cat) - CAT_ORDER.indexOf(b.cat));
-    const y0 = (H ? H - 20 : 70) + 36 + CARD_H / 2, x0 = 70 + CARD_W / 2;
-    sorted.forEach((n, i) => pos.set(n.id, { x: x0 + (i % cols) * (CARD_W + 24), y: y0 + Math.floor(i / cols) * (CARD_H + 22) }));
-    groups.set("__loose", { id: "grpLoose", label: linked.length ? "Ohne Import-Verbindungen" : "Komponenten", members: sorted.map(n => n.id) });
+    const cols = Math.max(2, Math.min(7, Math.floor(((W || 900) - 100) / (CHIP_W + 12))));
+    const sorted = [...loose].sort((a, b) => (a.side - b.side) || CAT_ORDER.indexOf(a.cat) - CAT_ORDER.indexOf(b.cat));
+    const y0 = (H ? H + 10 : 60) + 30 + CHIP_H / 2, x0 = 50 + CHIP_W / 2;
+    sorted.forEach((n, i) => pos.set(n.id, { x: x0 + (i % cols) * (CHIP_W + 12), y: y0 + Math.floor(i / cols) * (CHIP_H + 10) }));
     const rows = Math.ceil(sorted.length / cols);
-    W = Math.max(W, 70 * 2 + cols * (CARD_W + 24) - 24); H = y0 + (rows - 1) * (CARD_H + 22) + CARD_H / 2 + 70;
+    looseRect = { x0: 34, y0: y0 - CHIP_H / 2 - 30, x1: 50 + Math.min(cols, sorted.length) * (CHIP_W + 12) + 4, y1: y0 + (rows - 1) * (CHIP_H + 10) + CHIP_H / 2 + 14 };
+    W = Math.max(W, looseRect.x1 + 50); H = looseRect.y1 + 50;
   }
   graphSize = { w: W, h: H };
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-  /* Gruppenrahmen: nur für Fachbereiche (bzw. Gruppen aus einem Erweiterungs-Modus), und nur wenn kein fremder Baustein darin liegt */
-  const box = id => { const p = pos.get(id), n = ast.nodes.find(x => x.id === id), d = dim(n); return { x0: p.x - d.w / 2, x1: p.x + d.w / 2, y0: p.y - d.h / 2, y1: p.y + d.h / 2 }; };
-  for (const [key, gr] of [...groups]) {
-    if (key === "__loose") continue;
-    const n0 = ast.nodes.find(x => x.id === gr.members[0]);
-    const semantic = MODE === "ai" || (n0 && n0.group && n0.group !== CATS[n0.cat].label && n0.kind === "comp");
-    if (!semantic || gr.members.length < 2) { groups.delete(key); continue; }
-    const bs = gr.members.map(box);
-    const r = { x0: Math.min(...bs.map(b => b.x0)) - 16, x1: Math.max(...bs.map(b => b.x1)) + 16, y0: Math.min(...bs.map(b => b.y0)) - 34, y1: Math.max(...bs.map(b => b.y1)) + 14 };
-    const foreign = linked.some(n => !gr.members.includes(n.id) && (() => { const b = box(n.id); return b.x1 > r.x0 && b.x0 < r.x1 && b.y1 > r.y0 && b.y0 < r.y1; })());
-    if (foreign) groups.delete(key);
-  }
+  /* Rahmen: Fachbereiche und der Bereich mit den übrigen Bausteinen */
+  const frames = [];
   groups.forEach(gr => {
-    const ps = gr.members.map(id => pos.get(id));
-    const gx0 = Math.min(...ps.map(p => p.x - CARD_W / 2)) - 16, gx1 = Math.max(...ps.map(p => p.x + CARD_W / 2)) + 16;
-    const gy0 = Math.min(...ps.map(p => p.y - CARD_H / 2)) - 34, gy1 = Math.max(...ps.map(p => p.y + CARD_H / 2)) + 14;
-    gr.el = el("div", { class: "grp", style: `left:${gx0}px;top:${gy0}px;width:${gx1 - gx0}px;height:${gy1 - gy0}px` }, el("span", {}, gr.label));
-    nodesEl.append(gr.el);
+    const bs = gr.members.map(id => { const p = pos.get(id), d = dim(byId.get(id)); return { x0: p.x - d.w / 2, x1: p.x + d.w / 2, y0: p.y - d.h / 2, y1: p.y + d.h / 2 }; });
+    const r = { x0: Math.min(...bs.map(b => b.x0)) - 14, x1: Math.max(...bs.map(b => b.x1)) + 14, y0: Math.min(...bs.map(b => b.y0)) - 30, y1: Math.max(...bs.map(b => b.y1)) + 12 };
+    const foreign = linked.some(n => !gr.members.includes(n.id) && (() => { const p = pos.get(n.id), d = dim(n); return p.x + d.w / 2 > r.x0 && p.x - d.w / 2 < r.x1 && p.y + d.h / 2 > r.y0 && p.y - d.h / 2 < r.y1; })());
+    if (foreign) return;
+    gr.el = el("div", { class: "grp", style: `left:${r.x0}px;top:${r.y0}px;width:${r.x1 - r.x0}px;height:${r.y1 - r.y0}px` }, el("span", {}, gr.label));
+    frames.push(gr); nodesEl.append(gr.el);
   });
+  if (looseRect) {
+    const lab = hideSide && hidden.size ? `Weitere Bausteine · Tooling, Tests, Doku und ohne Importe` : linked.length ? "Ohne Import-Verbindungen" : "Bausteine";
+    const fr = { id: "grpLoose", label: lab, members: loose.map(n => n.id) };
+    fr.el = el("div", { class: "grp loose", style: `left:${looseRect.x0}px;top:${looseRect.y0}px;width:${looseRect.x1 - looseRect.x0}px;height:${looseRect.y1 - looseRect.y0}px` }, el("span", {}, lab));
+    frames.push(fr); nodesEl.append(fr.el);
+  }
 
-  /* Kanten */
+  /* Kanten: orthogonal mit runden Ecken; jede Kante bekommt einen eigenen Anschlusspunkt an der Kartenkante */
   const NS = "http://www.w3.org/2000/svg";
   const defs = document.createElementNS(NS, "defs");
   for (const [id, col] of [["arr", "var(--edge)"], ["arrHot", "var(--edge-hot)"]]) {
@@ -174,68 +210,101 @@ function renderCanvas({ animate = true } = {}) {
     m.append(p); defs.append(m);
   }
   svg.append(defs);
-  const line = d3.line().x(p => p.x).y(p => p.y).curve(d3.curveBasis);
+  const P = TD ? "y" : "x", S = TD ? "x" : "y"; /* Hauptachse (Fluss) und Querachse */
+  const routes = ast.edges.map((e, i) => ({ e, i, ed: g.hasEdge(e.from, e.to) ? g.edge(e.from, e.to) : null })).filter(r => r.ed && pos.has(r.e.from) && pos.has(r.e.to));
+  /* Anschlusspunkte verteilen, sortiert nach der Richtung, in die die Kante läuft */
+  const ports = new Map();
+  const assign = (id, list, side) => {
+    const n = byId.get(id), d = dim(n), c = pos.get(id)[S], span = (TD ? d.w : d.h) * (n.kind === "user" ? 0.4 : 0.7);
+    list.sort((a, b) => a.k - b.k);
+    const step = list.length > 1 ? Math.min(TD ? 26 : 14, span / (list.length - 1)) : 0;
+    list.forEach((r, j) => ports.set(r.r.i + side, c + (j - (list.length - 1) / 2) * step));
+  };
+  const outs = new Map(), ins = new Map();
+  routes.forEach(r => {
+    const pts = r.ed.points;
+    const nextS = pts.length > 2 ? pts[1][S] : pos.get(r.e.to)[S], prevS = pts.length > 2 ? pts[pts.length - 2][S] : pos.get(r.e.from)[S];
+    if (!outs.has(r.e.from)) outs.set(r.e.from, []); outs.get(r.e.from).push({ r, k: nextS });
+    if (!ins.has(r.e.to)) ins.set(r.e.to, []); ins.get(r.e.to).push({ r, k: prevS });
+  });
+  outs.forEach((l, id) => assign(id, l, ":o")); ins.forEach((l, id) => assign(id, l, ":i"));
   const maxW = Math.max(1, ...ast.edges.map(e => e.w || 1));
   EDGE_ELS = [];
-  const anchor = (id, out) => { const p = pos.get(id), n = ast.nodes.find(x => x.id === id), dd = dim(n);
-    return DIR === "TD" ? { x: p.x, y: p.y + (out ? dd.h / 2 : -dd.h / 2 - 2) } : { x: p.x + (out ? dd.w / 2 : -dd.w / 2 - 2), y: p.y }; };
-  ast.edges.forEach((e, i) => {
-    let ed = g.hasEdge(e.from, e.to) ? g.edge(e.from, e.to) : null, d;
-    if (ed) d = line(ed.points);
-    else if (pos.has(e.from) && pos.has(e.to)) {
-      /* eigene Kurve zu externen Diensten */
-      const a = anchor(e.from, true), b = anchor(e.to, false);
-      d = DIR === "TD" ? `M${a.x},${a.y} C${a.x},${(a.y + b.y) / 2} ${b.x},${(a.y + b.y) / 2} ${b.x},${b.y}` : `M${a.x},${a.y} C${(a.x + b.x) / 2},${a.y} ${(a.x + b.x) / 2},${b.y} ${b.x},${b.y}`;
-      /* Beschriftung auf der Kurve (t = 0.62), damit mehrere Pfeile in denselben Dienst nicht übereinander liegen */
-      const t = 0.62, u = 1 - t, m = DIR === "TD" ? (a.y + b.y) / 2 : (a.x + b.x) / 2;
-      const bz = (p0, p1, p2, p3) => u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
-      ed = DIR === "TD" ? { x: bz(a.x, a.x, b.x, b.x), y: bz(a.y, m, m, b.y), points: [a, b] } : { x: bz(a.x, m, m, b.x), y: bz(a.y, a.y, b.y, b.y), points: [a, b] };
-    } else return;
-    const sw = e.w ? 1.2 + Math.min(2.4, Math.log2(e.w + 1) * 0.55) : 1.5;
-    const base = document.createElementNS(NS, "path"); base.setAttribute("d", d); base.setAttribute("class", "edge"); base.setAttribute("stroke-width", sw); base.setAttribute("marker-end", "url(#arr)");
-    const flow = document.createElementNS(NS, "path"); flow.setAttribute("d", d); flow.setAttribute("class", "flow"); flow.setAttribute("stroke-width", Math.max(1.4, sw * 0.8));
-    if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s"; /* stärkere Kopplung fließt schneller */
-    svg.append(base, flow);
+  /* 1. Stützpunkte bauen; Quersegmente merken, um ihnen danach eigene Spuren zuzuteilen */
+  const cross = [];
+  const built = routes.map(({ e, i, ed }) => {
+    const a = pos.get(e.from), b = pos.get(e.to), da = dim(byId.get(e.from)), db = dim(byId.get(e.to));
+    const start = { [S]: ports.get(i + ":o"), [P]: a[P] + (TD ? da.h : da.w) / 2 };
+    const end = { [S]: ports.get(i + ":i"), [P]: b[P] - (TD ? db.h : db.w) / 2 - 2 };
+    const seq = [start, ...ed.points.slice(1, -1), end];
+    const v = [start];
+    for (let k = 0; k < seq.length - 1; k++) {
+      const p = v[v.length - 1], q = seq[k + 1];
+      if (Math.abs(p[S] - q[S]) < 2) { v.push({ [S]: p[S], [P]: q[P] }); continue; }
+      const m1 = { [S]: p[S], [P]: (p[P] + q[P]) / 2 }, m2 = { [S]: q[S], [P]: (p[P] + q[P]) / 2 };
+      v.push(m1, m2, { [S]: q[S], [P]: q[P] });
+      cross.push({ m1, m2, lo: p[P], hi: q[P], key: Math.round((p[P] + q[P]) / 2 / 6), from: Math.min(p[S], q[S]), to: Math.max(p[S], q[S]) });
+    }
+    return { e, ed, v };
+  });
+  /* 2. Spuren: überlappende Quersegmente im selben Zwischenraum bekommen verschiedene Höhen */
+  const byGap = new Map(); cross.forEach(c => { if (!byGap.has(c.key)) byGap.set(c.key, []); byGap.get(c.key).push(c); });
+  byGap.forEach(list => {
+    list.sort((x, y) => x.from - y.from || x.to - y.to);
+    const lanes = []; list.forEach(c => { let l = lanes.findIndex(end => end < c.from - 8); if (l < 0) { l = lanes.length; lanes.push(c.to); } else lanes[l] = c.to; c.lane = l; });
+    const n = lanes.length, room = Math.max(6, Math.min(...list.map(c => Math.abs(c.hi - c.lo))) - 20), step = n > 1 ? Math.min(7, room / (n - 1)) : 0;
+    list.forEach(c => { const off = (c.lane - (n - 1) / 2) * step; c.m1[P] += off; c.m2[P] += off; });
+  });
+  built.forEach(({ e, ed, v }, ri) => {
+    const d = roundPath(v);
+    const sw = e.w ? 1.25 + Math.min(1.8, Math.log2(e.w + 1) * 0.4) : 1.4;
+    const basePath = document.createElementNS(NS, "path"); basePath.setAttribute("d", d); basePath.setAttribute("class", "edge" + (extIds.has(e.to) || e.from === "u_user" ? " soft" : "")); basePath.setAttribute("stroke-width", sw); basePath.setAttribute("marker-end", "url(#arr)");
+    const flow = document.createElementNS(NS, "path"); flow.setAttribute("d", d); flow.setAttribute("class", "flow"); flow.setAttribute("stroke-width", Math.max(1.4, sw));
+    if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s";
+    svg.append(basePath, flow);
     let label = null;
-    if (e.label) { const mid = ed.x != null ? ed : ed.points[Math.floor(ed.points.length / 2)]; label = el("div", { class: "elabel", style: `left:${mid.x}px;top:${mid.y}px`, title: e.w ? `${e.w} Importe` : "" }, e.label); nodesEl.append(label); }
-    EDGE_ELS.push({ e, base, flow, label });
+    if (e.label) {
+      /* Beschriftung auf dem längsten Segment in Flussrichtung */
+      let best = null; for (let k = 0; k < v.length - 1; k++) { const L = Math.abs(v[k + 1][P] - v[k][P]); if (Math.abs(v[k + 1][S] - v[k][S]) < 1 && (!best || L > best.L)) best = { L, x: (v[k].x + v[k + 1].x) / 2, y: (v[k].y + v[k + 1].y) / 2 }; }
+      const lp = best || { x: ed.x, y: ed.y };
+      label = el("div", { class: "elabel", style: `left:${lp.x}px;top:${lp.y}px`, title: e.w ? `${e.w} Importe` : "" }, e.label); nodesEl.append(label);
+    }
+    EDGE_ELS.push({ e, base: basePath, flow, label });
     if (animate && !REDUCE.matches) {
-      const len = base.getTotalLength();
-      base.animate([{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: 700, delay: 260 + i * 14, easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
-      flow.animate([{ opacity: 0 }, { opacity: 0.35 }], { duration: 400, delay: 800 + i * 14, fill: "backwards" });
-      label?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 700 + i * 14, fill: "backwards" });
+      const len = basePath.getTotalLength();
+      basePath.animate([{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: 650, delay: 240 + ri * 12, easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
+      label?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 600 + ri * 12, fill: "backwards" });
     }
   });
 
-  /* Karten – gestaffelt nach Rang einblenden */
+  /* Karten – gestaffelt nach Ebene einblenden */
   CARD_ELS = new Map();
-  const order = [...ast.nodes].sort((a, b) => (DIR === "TD" ? pos.get(a.id).y - pos.get(b.id).y || pos.get(a.id).x - pos.get(b.id).x : pos.get(a.id).x - pos.get(b.id).x || pos.get(a.id).y - pos.get(b.id).y));
+  const order = [...ast.nodes].sort((a, b) => pos.get(a.id)[P] - pos.get(b.id)[P] || pos.get(a.id)[S] - pos.get(b.id)[S]);
   order.forEach((n, i) => {
     const p = pos.get(n.id), d = dim(n);
-    const hn = heurNode(n.id);
-    const isExt = n.kind === "ext" || (MODE === "ai" && !n.path);
+    const isExt = n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user");
+    const at = `left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px`;
     let card;
     if (n.kind === "user") {
-      card = el("div", { class: "card user", tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id, style: `--c:var(--c-user);left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px` },
-        el("span", { class: "ico" }, catIcon("user")), el("span", { class: "nm" }, n.label));
+      card = el("div", { class: "card user", style: `--c:var(--c-user);${at}` }, el("span", { class: "ico" }, catIcon("user")), el("span", { class: "nm" }, n.label));
+    } else if (n._chip) {
+      card = el("div", { class: "card chip", style: `--c:var(--c-${n.cat});${at}`, title: n.path || n.label }, el("span", { class: "ico" }, catIcon(n.cat)), el("span", { class: "nm" }, n.label), MODE === "heur" && n.count ? el("span", { class: "cnt" }, fmtInt(n.count)) : null);
     } else {
-      const foot = MODE === "ai" ? aiFoot(n)
-        : isExt ? [el("span", { class: "dot" }), el("span", {}, "Externer Dienst")]
-        : [el("span", { class: "dot" }), el("span", {}, `${fmtInt(hn?.files.length ?? 0)} Dateien`), el("span", { class: "sz" }, fmtBytes(hn?.bytes ?? 0))];
-      const sub = MODE === "ai" ? (n.path || "externer Dienst") : isExt ? (n.main || "") : (n.main || n.path || "/");
-      card = el("div", { class: "card" + (isExt ? " ext" : ""), tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id,
-        style: `--c:var(--c-${n.cat});left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px` },
-        el("div", { class: "hd" }, el("span", { class: "ico" }, catIcon(n.cat)), el("div", { style: "min-width:0" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub))),
-        el("div", { class: "ft" }, ...foot));
+      const sub = MODE === "ai" ? (n.path ? basename(n.path) || n.path : "externer Dienst") : isExt ? `${n.main || "Dienst"} · extern` : (n.main || n.path || "/");
+      const cnt = MODE === "heur" && !isExt ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
+      card = el("div", { class: "card" + (isExt ? " ext" : ""), style: `--c:var(--c-${n.cat});${at}` },
+        el("span", { class: "ico" }, catIcon(n.cat)),
+        el("div", { class: "tx" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub)),
+        cnt ? el("span", { class: "cnt", title: `${cnt} Dateien` }, fmtInt(cnt)) : null);
     }
+    Object.entries({ tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id }).forEach(([k, v]) => card.setAttribute(k, v));
     card.addEventListener("click", ev => { ev.stopPropagation(); select(n.id); centerOn(n.id); });
     card.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id); } });
     card.addEventListener("pointerdown", ev => ev.stopPropagation());
     nodesEl.append(card); CARD_ELS.set(n.id, card);
-    if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(10px) scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 520, delay: Math.min(500, i * 28), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
+    if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(8px) scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 480, delay: Math.min(480, i * 24), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
   });
-  groups.forEach(gr => { gr.el._members = gr.members; });
-  GROUP_ELS = [...groups.values()];
+  GROUP_ELS = frames;
   if (animate && !REDUCE.matches) GROUP_ELS.forEach((gr, i) => gr.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: i * 40, fill: "backwards" }));
 
   fitView(false);
@@ -243,11 +312,6 @@ function renderCanvas({ animate = true } = {}) {
 }
 let EDGE_ELS = [], CARD_ELS = new Map(), GROUP_ELS = [];
 const heurNode = id => A.nodes.find(n => n.id === id);
-function aiFoot(n) {
-  const files = n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")) : [];
-  return files.length ? [el("span", { class: "dot" }), el("span", {}, `${fmtInt(files.length)} Dateien`), el("span", { class: "sz" }, fmtBytes(files.reduce((a, f) => a + f.size, 0)))]
-    : [el("span", { class: "dot" }), el("span", {}, n.path ? "Datei" : "extern")];
-}
 
 function highlight(id) {
   const ast = currentAst();
@@ -605,6 +669,7 @@ function setMode(m) {
   MODE = m; $("#modeHeur")?.setAttribute("aria-pressed", m === "heur"); $("#modeAi")?.setAttribute("aria-pressed", m === "ai"); knobMode();
   SELECTED = null; closePanel(); renderCanvas();
 }
+$("#sideBtn").onclick = () => { SHOW_SIDE = !SHOW_SIDE; renderCanvas(); };
 const setDir = d => { DIR = d; $("#dirTD").setAttribute("aria-pressed", d === "TD"); $("#dirLR").setAttribute("aria-pressed", d === "LR"); knobDir(); renderCanvas(); };
 $("#dirTD").onclick = () => setDir("TD"); $("#dirLR").onclick = () => setDir("LR");
 $("#copyMm").onclick = async () => {
