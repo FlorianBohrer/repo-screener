@@ -683,11 +683,10 @@ function renderTour() {
 
 /* ============ Treemap ============ */
 let tmRoot = "";
-function buildHierarchy(prefix) {
+function buildHierarchy(prefix, MAXDEPTH = 3) {
   const root = { name: prefix || DATA.repo, path: prefix, children: [] };
   const idx = new Map([["", root]]);
   const rel = A.files.filter(f => !prefix || f.path.startsWith(prefix + "/"));
-  const MAXDEPTH = 3;
   for (const f of rel) {
     const r = prefix ? f.path.slice(prefix.length + 1) : f.path;
     const segs = r.split("/"); let cur = root, acc = "";
@@ -706,31 +705,64 @@ function buildHierarchy(prefix) {
   return root;
 }
 function textOn(hex) { const c = parseInt(hex.slice(1), 16); const r = c >> 16, g = c >> 8 & 255, b = c & 255; return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? "#16131f" : "#ffffff"; }
+/* dominant language color of a node (files, folders and "deeper levels" aggregates) */
+function tmColor(d) {
+  if (d.data.aggregate) return [...d.data.langs.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  if (!d.children) return langOf(d.data.path)[1];
+  const m = new Map(); d.leaves().forEach(l => { if (l.data.aggregate) l.data.langs.forEach((v, c) => m.set(c, (m.get(c) || 0) + v)); else { const c = langOf(l.data.path)[1]; m.set(c, (m.get(c) || 0) + (l.value || 0)); } });
+  return [...m.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || "#9aa3ad";
+}
+/* real number of files below a folder (aggregated deeper levels included) */
+const fileCount = d => { const p = d.data.path; return A.files.reduce((a, f) => a + (f.path.startsWith(p + "/") ? 1 : 0), 0); };
 function renderTreemap() {
   const box = $("#tm"); box.textContent = "";
   if (!A || typeof d3 === "undefined") return;
+  /* phone: one level at a time – folders are single tiles, plus a sorted list below */
+  const MOB = MOBILE.matches;
   const W = box.clientWidth, H = box.clientHeight; if (!W || !H) return;
-  const h = d3.hierarchy(buildHierarchy(tmRoot)).sum(d => d.size || 0).sort((a, b) => b.value - a.value);
-  d3.treemap().size([W, H]).paddingInner(3).paddingOuter(d => d.depth > 0 ? 3 : 0).paddingTop(d => d.depth > 0 && d.children ? 20 : 0).round(true)(h);
+  const h = d3.hierarchy(buildHierarchy(tmRoot, MOB ? 1 : 3)).sum(d => d.size || 0).sort((a, b) => b.value - a.value);
+  d3.treemap().size([W, H]).paddingInner(MOB ? 2 : 3).paddingOuter(d => d.depth > 0 && !MOB ? 3 : 0).paddingTop(d => !MOB && d.depth > 0 && d.children ? 20 : 0).round(true)(h);
   const tip = $("#tip"); let i = 0;
   for (const d of h.descendants()) {
-    if (d.depth === 0) continue;
+    if (d.depth === 0 || (MOB && d.depth > 1)) continue;
     const w = d.x1 - d.x0, hh = d.y1 - d.y0; if (w < 2 || hh < 2) continue;
-    const isDir = !!d.children;
-    const color = isDir ? null : d.data.aggregate ? [...d.data.langs.entries()].sort((a, b) => b[1] - a[1])[0][0] : langOf(d.data.path)[1];
-    const t = el("div", { class: "t " + (isDir ? "dir" : "leaf"), style: `left:${d.x0}px;top:${d.y0}px;width:${w}px;height:${hh}px;${color ? `background:${color};color:${textOn(color)}` : ""}` });
-    if (w > 30 && hh > 14) t.textContent = d.data.name;
+    const isDir = !!d.children, folded = MOB && isDir;
+    const color = isDir && !folded ? null : tmColor(d);
+    const t = el("div", { class: "t " + (folded ? "fold" : isDir ? "dir" : "leaf"), style: `left:${d.x0}px;top:${d.y0}px;width:${w}px;height:${hh}px;${color ? `background:${color};color:${textOn(color)}` : ""}` });
+    if (MOB) {
+      if (w > 44 && hh > 20) t.append(el("span", { class: "tn" }, d.data.name + (folded ? "/" : "")));
+      if (w > 64 && hh > 40) t.append(el("span", { class: "ts" }, fmtBytes(d.value) + (folded ? ` · ${fileCount(d)} files` : "")));
+      if (folded || d.data.aggregate) { t.setAttribute("role", "button"); t.setAttribute("aria-label", `Open ${d.data.name}, ${fmtBytes(d.value)}`); }
+    } else if (w > 30 && hh > 14) t.textContent = d.data.name;
     const info = `${d.data.aggregate ? d.data.path + "/… (deeper levels)" : d.data.path}\n${fmtBytes(d.value)}${isDir ? " · " + d.leaves().length + " entries" : ""}`;
-    t.addEventListener("mousemove", e => { tip.hidden = false; tip.textContent = info; tip.style.left = Math.min(e.clientX + 14, innerWidth - 370) + "px"; tip.style.top = (e.clientY + 16) + "px"; e.stopPropagation(); });
+    t.addEventListener("mousemove", e => { if (MOB) return; tip.hidden = false; tip.textContent = info; tip.style.left = Math.min(e.clientX + 14, innerWidth - 370) + "px"; tip.style.top = (e.clientY + 16) + "px"; e.stopPropagation(); });
     t.addEventListener("mouseleave", () => { tip.hidden = true; });
     if (isDir || d.data.aggregate) t.addEventListener("click", e => { e.stopPropagation(); tip.hidden = true; zoomTreemap(d.data.path, d); });
     else { const u = repoUrl(d.data.path, false); if (u) t.addEventListener("click", () => window.open(u, "_blank", "noopener")); }
     if (!REDUCE.matches && i < 600) t.animate([{ opacity: 0, transform: "scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 420, delay: Math.min(260, d.depth * 60 + (i % 40) * 4), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
     i++; box.append(t);
   }
+  /* sorted list of the current level (phone): easy to tap, readable, screen-reader friendly */
+  const list = $("#tmList"); list.textContent = ""; list.hidden = !MOB;
+  if (MOB && h.children) {
+    const total = h.value || 1;
+    h.children.slice(0, 60).forEach((d, k) => {
+      const isDir = !!d.children || d.data.aggregate, color = tmColor(d), pct = d.value / total * 100;
+      const u = !isDir ? repoUrl(d.data.path, false) : null;
+      const attrs = { class: "tl" + (isDir ? " dir" : ""), style: `--sw:${color};animation-delay:${Math.min(k, 12) * 18}ms` };
+      const row = isDir ? el("button", { ...attrs, type: "button", onclick: () => zoomTreemap(d.data.path, d) }) : u ? el("a", { ...attrs, href: u, target: "_blank", rel: "noopener" }) : el("div", attrs);
+      row.append(el("i", { class: "sw" }), svgUse(isDir ? "i-folder" : "i-file"), el("span", { class: "tn" }, d.data.aggregate ? "deeper levels" : d.data.name),
+        el("span", { class: "tv" }, fmtBytes(d.value)), el("span", { class: "tbar" }, el("b", { style: `width:${Math.max(1, pct).toFixed(1)}%` })),
+        el("span", { class: "tp" }, `${pct < 0.1 ? "<0.1" : pct.toFixed(1)}%${isDir ? ` · ${fileCount(d)} files` : ""}`));
+      if (isDir) row.append(el("span", { class: "ar" }, "›"));
+      list.append(row);
+    });
+  }
   const cr = $("#tmCrumbs"); cr.textContent = "";
+  if (tmRoot) cr.append(el("button", { type: "button", class: "up", "aria-label": "Up one level", onclick: () => zoomTreemap(tmRoot.includes("/") ? tmRoot.slice(0, tmRoot.lastIndexOf("/")) : "") }, "←"));
   cr.append(el("button", { type: "button", onclick: () => zoomTreemap("") }, DATA.repo.split("/").pop()));
   if (tmRoot) { let acc = ""; for (const s of tmRoot.split("/")) { acc = acc ? acc + "/" + s : s; const p = acc; cr.append(el("span", { class: "s" }, "/"), el("button", { type: "button", onclick: () => zoomTreemap(p) }, s)); } }
+  cr.lastElementChild?.setAttribute("aria-current", "location");
 }
 /* Zooming in: the clicked folder grows from its position to the full area */
 function zoomTreemap(path, d) {
@@ -738,7 +770,7 @@ function zoomTreemap(path, d) {
   if (d && !REDUCE.matches) {
     const W = box.clientWidth, H = box.clientHeight;
     const sx = (d.x1 - d.x0) / W, sy = (d.y1 - d.y0) / H;
-    tmRoot = path; renderTreemap();
+    tmRoot = path; renderTreemap(); $("#tmList").scrollTop = 0;
     box.animate([{ transformOrigin: "0 0", transform: `translate(${d.x0}px,${d.y0}px) scale(${sx},${sy})`, opacity: .6 }, { transformOrigin: "0 0", transform: "none", opacity: 1 }], { duration: 480, easing: "cubic-bezier(.16,1,.3,1)" });
   } else { tmRoot = path; renderTreemap(); }
 }

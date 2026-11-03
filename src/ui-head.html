@@ -370,13 +370,20 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
 .crumb button:last-child{color:var(--text);background:var(--surface-2);box-shadow:0 0 0 1px var(--border) inset;font-weight:500}
 .crumb .s{color:var(--text-3)}
 .tm{position:relative;flex:1;min-height:0;margin:10px}
-.tm .t{position:absolute;overflow:hidden;font-size:10.5px;line-height:1.25;padding:3px 6px;border-radius:4px;font-family:var(--font);transition:filter .15s}
+.tm .t{position:absolute;overflow:hidden;font-size:10.5px;line-height:1.25;padding:3px 6px;border-radius:1px;font-family:var(--font);transition:filter .15s}
 .tm .t.dir{background:color-mix(in srgb,var(--surface) 80%,transparent);color:var(--text-3);font-weight:600;cursor:zoom-in;box-shadow:0 0 0 1px var(--border) inset;letter-spacing:.01em}
 .tm .t.dir:hover{color:var(--text);box-shadow:0 0 0 1px var(--border-2) inset}
 .tm .t.leaf{cursor:pointer}
 .tm .t.leaf:hover{filter:brightness(1.15);z-index:2}
 .tip{position:fixed;z-index:60;pointer-events:none;max-width:360px;padding:7px 10px;border-radius:4px;font-family:var(--mono);font-size:11.5px;white-space:pre;
   background:var(--raised);border:1px solid var(--border-2);box-shadow:var(--shadow-lg);color:var(--text)}
+
+.tm .t.fold{cursor:pointer;display:flex;flex-direction:column;gap:2px;padding:6px 7px;font-size:12px;line-height:1.2}
+.tm .t .tn{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tm .t .ts{font-family:var(--mono);font-size:10px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm .t.leaf{display:flex;flex-direction:column;gap:2px}
+.tm-list{display:none}
+.crumb .up{font-weight:600}
 
 /* ===== Files ===== */
 .search{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);flex:1 1 240px;max-width:420px;transition:border-color .2s,box-shadow .2s}
@@ -512,6 +519,26 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
   .ctl-more #copyMm{width:auto;padding:0 11px;gap:7px}
   .ctl-more #copyMm::after{content:"Copy Mermaid source"}
   .legend{display:none}
+  /* treemap on phones: one level, larger tiles, sorted list below */
+  .view[data-view="tree"] .subbar{padding:8px 10px;flex-wrap:nowrap}
+  .view[data-view="tree"] .hint{display:none}
+  .crumb{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;white-space:nowrap;max-width:100%}
+  .crumb::-webkit-scrollbar{display:none}
+  .crumb button{flex:none;padding:6px 10px}
+  .view[data-view="tree"] .tm{flex:0 0 auto;height:44%;margin:10px 10px 0}
+  .tm .t{padding:6px 7px;font-size:12px}
+  .tm-list:not([hidden]){display:block;flex:1;min-height:0;overflow:auto;padding:8px 10px max(14px,env(safe-area-inset-bottom,0px))}
+  .tl{display:grid;grid-template-columns:10px 16px minmax(0,1fr) auto 14px;grid-template-areas:"sw ic name size ar" ". . bar bar ." ". . pct pct .";align-items:center;column-gap:8px;row-gap:3px;width:100%;padding:9px 6px;border:0;border-bottom:1px solid var(--border);background:none;text-align:left;color:var(--text);text-decoration:none;font-size:13px;cursor:pointer;animation:rise .3s var(--out) both}
+  .tl:active{background:var(--hover)}
+  .tl .sw{grid-area:sw;width:10px;height:10px;border-radius:1px;background:var(--sw)}
+  .tl svg{grid-area:ic;width:14px;height:14px;color:var(--text-3)}
+  .tl .tn{grid-area:name;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tl.dir .tn{font-weight:600}
+  .tl .tv{grid-area:size;font-family:var(--mono);font-size:11.5px;color:var(--text-2)}
+  .tl .ar{grid-area:ar;color:var(--text-3);font-size:16px;line-height:1}
+  .tl .tbar{grid-area:bar;height:3px;background:var(--surface-2);overflow:hidden}
+  .tl .tbar b{display:block;height:100%;background:var(--sw)}
+  .tl .tp{grid-area:pct;font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
   .zoom{left:max(10px,env(safe-area-inset-left,0px));bottom:max(10px,env(safe-area-inset-bottom,0px))}
   .log{right:10px;bottom:10px;width:calc(100% - 20px)}
   /* detail panel becomes a bottom sheet that slides up and can be swiped down */
@@ -663,6 +690,7 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
     <section class="view" data-view="tree" hidden>
       <div class="subbar"><div class="crumb" id="tmCrumbs"></div><span class="sp"></span><span class="hint">Area = file size · color = language · click a folder to zoom in</span></div>
       <div class="tm" id="tm"></div>
+      <div class="tm-list" id="tmList" role="list" aria-label="Contents of this folder" hidden></div>
     </section>
 
     <section class="view" data-view="files" hidden>
