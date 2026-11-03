@@ -49,6 +49,8 @@ Also:
 
 On phones the treemap shows one level at a time with a sorted list below, and the file view works like a file browser (one folder at a time, sort by name or size, flat search results with their folder). On phones the architecture takes the whole screen: the header shrinks to one row (search behind the magnifier, Folder/Example/Token in the ⋯ menu), the summary folds to a single line, the toolbar keeps only Guide and View, and the detail panel becomes a bottom sheet you can swipe down.
 
+**Motion:** all animations share one spring model. The JS springs (pan, zoom, panel, indicators) are also sampled into CSS `linear()` curves for transitions. Changing the direction, toggling Tooling & Tests or resizing into another layout morphs the cards to their new places, and the lines redraw once the cards have landed. Selecting a card sends a light pulse along its lines, and each card it reaches answers with a ring. A main flow from the guide is walked hop by hop. Tabs slide in the direction you move. With reduced motion turned on, all of this is off.
+
 The search field is an accessible combobox: it suggests recently analyzed repos (stored only in your browser) and examples, recognizes pasted GitHub URLs as `owner/repo`, and validates the input inline with a message read out by screen readers.
 
 Add `?repo=owner/repo` to the URL to analyze a repo directly.

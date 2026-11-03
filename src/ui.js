@@ -31,6 +31,22 @@ function spring(value, { response = 0.38, damping = 1, eps = 0.2 } = {}) {
 }
 const project = (v, d = 0.996) => (v / 1000) * d / (1 - d); /* Apple's momentum projection */
 const rubber = (o, dim, c = 0.55) => (o * dim * c) / (dim + c * Math.abs(o));
+/* The same spring as a CSS linear() easing, so WAAPI and CSS transitions move with the physics of the JS springs.
+   Damping < 1 gives a small, quick overshoot; the curve is sampled until the envelope has settled within `ms`. */
+const LINEAR_OK = typeof CSS !== "undefined" && CSS.supports?.("transition-timing-function", "linear(0, 1)");
+function springEase(ms, damping = 1, fallback = "cubic-bezier(.32,.72,0,1)") {
+  if (!LINEAR_OK) return fallback;
+  const T = ms / 1000, w = Math.log(1000) / (damping * T), wd = w * Math.sqrt(Math.max(1e-6, 1 - damping * damping)), n = 40, pts = [];
+  for (let i = 0; i <= n; i++) {
+    const t = T * i / n, env = Math.exp(-damping * w * t);
+    const x = damping >= 1 ? 1 - env * (1 + w * t) : 1 - env * (Math.cos(wd * t) + (damping * w / wd) * Math.sin(wd * t));
+    pts.push(i === n ? 1 : +x.toFixed(4));
+  }
+  return `linear(${pts.join(", ")})`;
+}
+const EASE = { morph: springEase(680, 0.8), pop: springEase(420, 0.62, "cubic-bezier(.34,1.56,.64,1)"), soft: springEase(460, 1) };
+document.documentElement.style.setProperty("--spring", EASE.pop);
+document.documentElement.style.setProperty("--spring-soft", EASE.soft);
 
 /* ============ Header: repo, tabs with a spring indicator ============ */
 function repoUrl(path, isDir) {
@@ -145,8 +161,13 @@ function roundPath(v, r = 9) {
   const z = q[q.length - 1]; return d + ` L${z.x.toFixed(1)},${z.y.toFixed(1)}`;
 }
 
-function renderCanvas({ animate = true } = {}) {
+let MORPH_A = null, LAST_LAYOUT = null;
+function renderCanvas({ animate = true, morph = false } = {}) {
   if (!A) return;
+  /* Morph: when the same analysis is laid out again (direction, tooling, mode), cards glide from their old spot instead of reappearing */
+  morph = morph && animate && !REDUCE.matches && MORPH_A === A && CARD_ELS.size > 0;
+  const prev = new Map();
+  if (morph) CARD_ELS.forEach((c, id) => prev.set(id, { l: parseFloat(c.style.left), t: parseFloat(c.style.top), w: c.offsetWidth, h: c.offsetHeight, el: c }));
   const base = currentAst();
   /* Tooling, tests, docs and developer infrastructure are hidden by default (as usual in architecture diagrams) */
   const hideSide = MODE === "heur" && !SHOW_SIDE;
@@ -159,6 +180,11 @@ function renderCanvas({ animate = true } = {}) {
   else if (A.analysed === 0) { ov.hidden = false; ov.textContent = ""; ov.append(el("p", { class: "muted" }, "No source code was read for this repository, so the diagram only shows the folder structure without connections.")); }
   else ov.hidden = true;
   const nodesEl = $("#nodes"), svg = $("#edges"), empty = $("#stageEmpty");
+  if (morph) {
+    /* Old lines fade out in place, cards that disappear shrink away */
+    const ghost = svg.cloneNode(true); ghost.removeAttribute("id"); ghost.querySelectorAll("[id]").forEach(x => x.removeAttribute("id")); ghost.classList.add("ghost");
+    svg.after(ghost); ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: "forwards" }).onfinish = () => ghost.remove();
+  }
   nodesEl.textContent = ""; svg.textContent = "";
   if (typeof dagre === "undefined") { empty.hidden = false; empty.textContent = "The layout library could not be loaded. Check your connection and reload the page."; return; }
   empty.hidden = true;
@@ -171,6 +197,7 @@ function renderCanvas({ animate = true } = {}) {
   const extIds = new Set(linked.filter(n => n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user")).map(n => n.id));
   PORT_DEG = new Map();
   for (const n of linked) { const o = ast.edges.filter(e => e.from === n.id).length, i = ast.edges.filter(e => e.to === n.id).length; PORT_DEG.set(n.id, Math.max(o, i)); }
+  LAST_LAYOUT = { linked, edges: ast.edges };
   if (DIR_MODE === "auto") DIR = pickDir(linked, ast.edges);
   const TD = DIR === "TD";
   updateDirUi();
@@ -324,9 +351,10 @@ function renderCanvas({ animate = true } = {}) {
     }
     EDGE_ELS.push({ e, base: basePath, flow, label });
     if (animate && !REDUCE.matches) {
-      const len = basePath.getTotalLength();
-      basePath.animate([{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: 650, delay: 240 + ri * 12, easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
-      label?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 600 + ri * 12, fill: "backwards" });
+      /* Lines draw themselves from source to target; after a morph they wait until the cards have landed */
+      const len = basePath.getTotalLength(), d0 = morph ? 420 : 240;
+      basePath.animate([{ strokeDasharray: `${len} ${len}`, strokeDashoffset: len }, { strokeDasharray: `${len} ${len}`, strokeDashoffset: 0 }], { duration: morph ? 520 : 650, delay: d0 + ri * (morph ? 8 : 12), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
+      label?.animate([{ opacity: 0, transform: "translate(-50%,-50%) scale(.85)" }, { opacity: 1, transform: "translate(-50%,-50%)" }], { duration: 320, delay: d0 + 340 + ri * 10, easing: EASE.pop, fill: "backwards" });
     }
   });
 
@@ -357,17 +385,41 @@ function renderCanvas({ animate = true } = {}) {
     card.addEventListener("mouseenter", () => { if (!SELECTED && !LOCK) highlight(n.id, true); });
     card.addEventListener("mouseleave", () => { if (!SELECTED && !LOCK) highlight(null); });
     nodesEl.append(card); CARD_ELS.set(n.id, card);
-    if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(8px) scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 480, delay: Math.min(480, i * 24), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
+    const was = prev.get(n.id);
+    if (was) {
+      prev.delete(n.id);
+      const nl = parseFloat(card.style.left), nt = parseFloat(card.style.top), dx = was.l - nl, dy = was.t - nt;
+      if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5 || was.w !== d.w || was.h !== d.h)
+        card.animate([{ transform: `translate(${dx}px,${dy}px)`, width: was.w + "px", height: was.h + "px" }, { transform: "none", width: d.w + "px", height: d.h + "px" }], { duration: 680, delay: Math.min(120, i * 6), easing: EASE.morph, fill: "backwards" });
+    } else if (morph) card.animate([{ opacity: 0, transform: "scale(.9)" }, { opacity: 1, transform: "none" }], { duration: 420, delay: 260 + Math.min(200, i * 14), easing: EASE.pop, fill: "backwards" });
+    else if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(10px) scale(.96)" }, { opacity: 1, transform: "none" }], { duration: 560, delay: Math.min(480, i * 24), easing: EASE.morph, fill: "backwards" });
   });
+  prev.forEach(({ el: old }) => { old.classList.add("ghost"); old.classList.remove("sel", "dim"); nodesEl.append(old); old.animate([{ opacity: 1, transform: "none" }, { opacity: 0, transform: "scale(.9)" }], { duration: 220, easing: "cubic-bezier(.4,0,1,1)", fill: "forwards" }).onfinish = () => old.remove(); });
   GROUP_ELS = frames;
-  if (animate && !REDUCE.matches) GROUP_ELS.forEach((gr, i) => gr.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: i * 40, fill: "backwards" }));
+  if (animate && !REDUCE.matches) GROUP_ELS.forEach((gr, i) => gr.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, delay: (morph ? 380 : 0) + i * 40, fill: "backwards" }));
 
-  fitView(false);
+  fitView(morph);
+  MORPH_A = A;
   if (SELECTED && CARD_ELS.has(SELECTED)) highlight(SELECTED); else if (SELECTED) select(null);
 }
 let EDGE_ELS = [], CARD_ELS = new Map(), GROUP_ELS = [];
 const heurNode = id => A.nodes.find(n => n.id === id);
 
+/* A short light pulse travels along a line from source to target; the card it reaches answers with a ring */
+function pulse(base, delay = 0) {
+  if (REDUCE.matches || !base.isConnected) return 0;
+  const len = base.getTotalLength(), p = base.cloneNode(); p.removeAttribute("marker-end"); p.setAttribute("class", "pulse");
+  p.setAttribute("stroke-width", (parseFloat(base.getAttribute("stroke-width")) || 1.2) + 1.4); base.after(p);
+  const seg = Math.min(46, Math.max(18, len * 0.22)), dur = Math.min(900, 320 + len * 0.9);
+  p.animate([{ strokeDasharray: `${seg} ${len + seg}`, strokeDashoffset: seg, opacity: 1 }, { strokeDasharray: `${seg} ${len + seg}`, strokeDashoffset: -len, opacity: 0.9 }], { duration: dur, delay, easing: "cubic-bezier(.45,0,.25,1)", fill: "both" }).onfinish = () => p.remove();
+  return dur;
+}
+function ring(id, delay = 0) {
+  const c = CARD_ELS.get(id); if (!c || REDUCE.matches) return;
+  const r = el("div", { class: "ring", style: `--c:${c.style.getPropertyValue("--c")};left:${c.style.left};top:${c.style.top};width:${c.offsetWidth}px;height:${c.offsetHeight}px` });
+  c.after(r);
+  r.animate([{ opacity: 0.9, transform: "scale(1)" }, { opacity: 0, transform: `scale(${1 + 14 / c.offsetWidth},${1 + 14 / c.offsetHeight})` }], { duration: 560, delay, easing: "cubic-bezier(.2,.7,.3,1)", fill: "both" }).onfinish = () => r.remove();
+}
 function highlight(id, preview = false) {
   $("#canvas").classList.toggle("preview", !!id && preview);
   const ast = currentAst();
@@ -381,7 +433,15 @@ function highlight(id, preview = false) {
     base.setAttribute("marker-end", hot ? "url(#arrHot)" : "url(#arr)");
     if (label) { label.classList.toggle("hot", hot); label.classList.toggle("dim", !!id && !hot); }
   });
+  /* Selecting (not hovering) sends a pulse along every line of the card, outgoing first */
+  if (id && !preview && id !== LAST_PULSE) {
+    ring(id);
+    EDGE_ELS.forEach(({ e, base }) => { if (e.from === id) { const d = pulse(base, 60); ring(e.to, 60 + d * 0.82); } });
+    EDGE_ELS.forEach(({ e, base }) => { if (e.to === id && e.from !== id) pulse(base, 160); });
+  }
+  LAST_PULSE = preview ? LAST_PULSE : id;
 }
+let LAST_PULSE = null;
 
 /* ============ Pan & zoom – 1:1 drag, momentum, scroll pans, ⌘/Ctrl + scroll zooms ============ */
 function fitTarget() {
@@ -679,6 +739,9 @@ function highlightPath(ids) {
     base.setAttribute("marker-end", hot ? "url(#arrHot)" : "url(#arr)");
     if (label) { label.classList.toggle("hot", hot); label.classList.toggle("dim", !hot); }
   });
+  /* Walk the path: each hop pulses after the previous one has arrived */
+  LAST_PULSE = null; let t = 280; ring(ids[0], t);
+  ids.slice(1).forEach((id, i) => { const ed = EDGE_ELS.find(x => x.e.from === ids[i] && x.e.to === id); const d = ed ? pulse(ed.base, t) : 0; t += Math.max(260, d * 0.85); ring(id, t); });
 }
 /* Point the camera at a group of cards (leaving room for the panel) */
 function focusNodes(ids) {
@@ -989,7 +1052,7 @@ function renderHealth() {
   if (DATA.truncated) notes.push("GitHub returned a truncated file tree, so very large repos are incomplete.");
   if (DATA.source === "github" && A.analysed) notes.push(`Imports come from a sample of ${A.analysed} source files.`);
   if (DATA.source === "sample") notes.push("Example data: file tree and imports of ahmedkhaleel2004/gitdiagram, captured on November 2, 2026.");
-  if (notes.length) g.append(el("div", { class: "box span12", style: "animation-delay:.3s" }, el("h3", {}, "Hinweise"), ...notes.map(t => el("div", { class: "notice" }, t))));
+  if (notes.length) g.append(el("div", { class: "box span12", style: "animation-delay:.3s" }, el("h3", {}, "Notes"), ...notes.map(t => el("div", { class: "notice" }, t))));
 }
 function countUp(node, to) {
   if (REDUCE.matches) { node.textContent = to; return; }
@@ -1001,9 +1064,11 @@ function countUp(node, to) {
 /* ============ Tabs & controls ============ */
 function switchTab(t) {
   if (t === TAB) return;
+  const order = [...document.querySelectorAll(".tab")].map(x => x.dataset.tab), dir = Math.sign(order.indexOf(t) - order.indexOf(TAB)) || 1;
+  document.querySelectorAll("[data-view]").forEach(v => v.style.setProperty("--vx", dir * 18 + "px"));
   TAB = t;
   document.querySelectorAll(".tab").forEach(x => x.setAttribute("aria-selected", x.dataset.tab === TAB ? "true" : "false"));
-  document.querySelectorAll("[data-view]").forEach(v => { const on = v.dataset.view === TAB; v.hidden = !on; v.classList.toggle("enter", on); });
+  document.querySelectorAll("[data-view]").forEach(v => { const on = v.dataset.view === TAB; v.hidden = !on; v.classList.remove("enter"); if (on) { void v.offsetWidth; v.classList.add("enter"); } });
   moveTabInd(true);
   if (TAB !== "arch" && SELECTED) select(null);
   if (TAB === "tree") renderTreemap();
@@ -1014,12 +1079,12 @@ function switchTab(t) {
 document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => switchTab(b.dataset.tab)));
 function setMode(m) {
   MODE = m; $("#modeHeur")?.setAttribute("aria-pressed", m === "heur"); $("#modeAi")?.setAttribute("aria-pressed", m === "ai"); knobMode();
-  SELECTED = null; closePanel(); renderCanvas();
+  SELECTED = null; closePanel(); renderCanvas({ morph: true });
 }
 $("#guideBtn").onclick = () => GUIDE && !TOUR ? select(null) : openGuide();
 $("#explainBtn").onclick = () => openGuide();
-$("#sideBtn").onclick = () => { SHOW_SIDE = !SHOW_SIDE; renderCanvas(); };
-const setDir = m => { DIR_MODE = m; if (m !== "auto") DIR = m; renderCanvas(); };
+$("#sideBtn").onclick = () => { SHOW_SIDE = !SHOW_SIDE; renderCanvas({ morph: true }); };
+const setDir = m => { DIR_MODE = m; if (m !== "auto") DIR = m; renderCanvas({ morph: true }); };
 $("#dirAuto").onclick = () => setDir("auto"); $("#dirTD").onclick = () => setDir("TD"); $("#dirLR").onclick = () => setDir("LR");
 $("#copyMm").onclick = async () => {
   const b = $("#copyMm"), src = compileMermaid(currentAst(), DIR);
@@ -1190,7 +1255,7 @@ $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE)
 })();
 
 /* ============ Resize & theme ============ */
-let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "files") renderFiles(); if (TAB === "arch") fitView(true); }, 120); });
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "files") renderFiles(); if (TAB === "arch") { if (DIR_MODE === "auto" && LAST_LAYOUT && pickDir(LAST_LAYOUT.linked, LAST_LAYOUT.edges) !== DIR) renderCanvas({ morph: true }); else fitView(true); } }, 120); });
 if (document.fonts?.ready) document.fonts.ready.then(() => { moveTabInd(false); knobMode(false); knobDir(false); });
 
 /* ============ Start ============ */
