@@ -10,7 +10,7 @@
   --bg:#e9ecef; --canvas:#f6f7f8; --grid:rgba(20,32,48,.055); --grid-2:rgba(20,32,48,.1);
   --surface:#ffffff; --surface-2:#f1f3f5; --raised:#ffffff; --hover:#e8ebee;
   --border:#bfc7cf; --border-2:#98a2ad;
-  --glow-a:.32;
+  --glow-a:.32; --edge-mix:55%; --edge-mix-soft:38%;
   --text:#13171c; --text-2:#48525c; --text-3:#7a838d;
   --accent:#1d4ed8; --accent-ink:#ffffff; --accent-soft:rgba(29,78,216,.09); --ring:#1d4ed8;
   --edge:#98a1ab; --edge-hot:#1d4ed8;
@@ -34,7 +34,7 @@
   --bg:#141619; --canvas:#191c20; --grid:rgba(255,255,255,.04); --grid-2:rgba(255,255,255,.075);
   --surface:#1e2125; --surface-2:#24282d; --raised:#22262b; --hover:#2a2f35;
   --border:#3d454e; --border-2:#59636e;
-  --glow-a:.5;
+  --glow-a:.5; --edge-mix:62%; --edge-mix-soft:45%;
   --text:#e7e9ec; --text-2:#a5aeb8; --text-3:#76808a;
   --accent:#7ea1ff; --accent-ink:#0b1220; --accent-soft:rgba(126,161,255,.12); --ring:#7ea1ff;
   --edge:#5a636d; --edge-hot:#98b4ff;
@@ -48,7 +48,7 @@
   --bg:#141619; --canvas:#191c20; --grid:rgba(255,255,255,.04); --grid-2:rgba(255,255,255,.075);
   --surface:#1e2125; --surface-2:#24282d; --raised:#22262b; --hover:#2a2f35;
   --border:#3d454e; --border-2:#59636e;
-  --glow-a:.5;
+  --glow-a:.5; --edge-mix:62%; --edge-mix-soft:45%;
   --text:#e7e9ec; --text-2:#a5aeb8; --text-3:#76808a;
   --accent:#7ea1ff; --accent-ink:#0b1220; --accent-soft:rgba(126,161,255,.12); --ring:#7ea1ff;
   --edge:#5a636d; --edge-hot:#98b4ff;
@@ -493,6 +493,38 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
 .close:active,.crumb button:active,.cmd-clear:active,.explain:active,.backlink:active,ol.start .sname:active{transform:translateY(1px)}
 .tab:active{color:var(--text)}
 .seg button:active{transform:translateY(1px)}
+
+/* colored borders at rest: cards in their category color, every other container in the accent */
+:root{--line-accent:color-mix(in srgb,var(--accent) var(--edge-mix),var(--border));--line-accent-soft:color-mix(in srgb,var(--accent) var(--edge-mix-soft),var(--border))}
+.card{border:1.5px solid color-mix(in srgb,var(--c) var(--edge-mix),var(--border))}
+.card.file{border-left:3px solid var(--c)}
+.card.ext{border:1.5px dashed color-mix(in srgb,var(--c) var(--edge-mix),var(--border))}
+.card.user{border-color:color-mix(in srgb,var(--c) var(--edge-mix),var(--border))}
+.card.chip{border:1px solid color-mix(in srgb,var(--c) var(--edge-mix-soft),var(--border))}
+.card.chip:hover{border-color:var(--c)}
+.card .cnt{border-left-color:color-mix(in srgb,var(--c) var(--edge-mix-soft),var(--border))}
+.panel{border-color:color-mix(in srgb,var(--c,var(--accent)) var(--edge-mix),var(--border));border-width:1.5px}
+.panel .ph{border-bottom-color:color-mix(in srgb,var(--c,var(--accent)) var(--edge-mix-soft),var(--border))}
+.floating,.box,.tile,.doc,.gflow,.pathbox,.log,.pop,.cmd-list,.ctl-more{border-color:var(--line-accent)}
+.tile,.doc,.gflow,.pathbox{border-color:var(--line-accent-soft)}
+.workspace{border-color:var(--line-accent-soft)}
+.cmd{border-color:var(--line-accent-soft)}
+.seg{border-color:var(--line-accent-soft)}
+.grp{border-color:var(--line-accent-soft)}
+.grp.loose{border-color:var(--border-2)}
+.legend span{border-color:color-mix(in srgb,var(--c) var(--edge-mix-soft),var(--border))}
+.lchip{border-color:color-mix(in srgb,var(--c) var(--edge-mix-soft),var(--border))}
+.chip{border-color:var(--line-accent-soft)}
+.box h3{border-bottom:1px solid var(--line-accent-soft);padding-bottom:var(--s2)}
+.log .lh{border-bottom-color:var(--line-accent-soft)}
+.subbar{border-bottom-color:var(--line-accent-soft)}
+.tabs{border-bottom-color:var(--line-accent-soft)}
+.checks li{border-bottom-color:color-mix(in srgb,var(--accent) 18%,var(--border))}
+.checks .ok .st{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--ok) 55%,transparent)}
+.checks .warn .st{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 55%,transparent)}
+.checks .bad .st{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--bad) 55%,transparent)}
+.legend span:hover{border-color:var(--c)}
+@media (prefers-contrast:more){:root{--edge-mix:85%;--edge-mix-soft:70%}}
 
 /* ===== Responsive ===== */
 @media (max-width:900px){.span4,.span5,.span7,.span8,.span6{grid-column:span 12}.checks{grid-template-columns:minmax(0,1fr)}}
