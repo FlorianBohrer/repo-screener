@@ -246,8 +246,9 @@ function renderCanvas({ animate = true } = {}) {
   const defs = document.createElementNS(NS, "defs");
   for (const [id, col] of [["arr", "var(--edge)"], ["arrHot", "var(--edge-hot)"]]) {
     const m = document.createElementNS(NS, "marker");
-    Object.entries({ id, viewBox: "0 0 10 10", refX: "8.5", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" }).forEach(([k, v]) => m.setAttribute(k, v));
-    const p = document.createElementNS(NS, "path"); p.setAttribute("d", "M1 1.5L8.5 5 1 8.5"); p.setAttribute("fill", "none"); p.setAttribute("stroke", col); p.setAttribute("stroke-width", "1.6"); p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+    Object.entries({ id, viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "8", markerHeight: "8", markerUnits: "userSpaceOnUse", orient: "auto-start-reverse" }).forEach(([k, v]) => m.setAttribute(k, v));
+    /* drafting-style arrowhead: a narrow filled triangle */
+    const p = document.createElementNS(NS, "path"); p.setAttribute("d", "M0 1.6L9.5 5 0 8.4z"); p.setAttribute("fill", col); p.setAttribute("stroke", "none");
     m.append(p); defs.append(m);
   }
   svg.append(defs);
@@ -304,7 +305,7 @@ function renderCanvas({ animate = true } = {}) {
   }
   built.forEach(({ e, ed, v }, ri) => {
     const d = roundPath(v);
-    const sw = e.w ? 1.25 + Math.min(1.8, Math.log2(e.w + 1) * 0.4) : 1.4;
+    const sw = e.w ? 1.1 + Math.min(1.3, Math.log2(e.w + 1) * 0.3) : 1.15;
     const basePath = document.createElementNS(NS, "path"); basePath.setAttribute("d", d); basePath.setAttribute("class", "edge" + (extIds.has(e.to) || e.from === "u_user" ? " soft" : "")); basePath.setAttribute("stroke-width", sw); basePath.setAttribute("marker-end", "url(#arr)");
     const flow = document.createElementNS(NS, "path"); flow.setAttribute("d", d); flow.setAttribute("class", "flow"); flow.setAttribute("stroke-width", Math.max(1.4, sw));
     if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s";
