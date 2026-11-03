@@ -1,58 +1,62 @@
 # Repo Screener
 
-Ein Screener und Visualisierer für Code-Projekte. Er läuft komplett im Browser, ohne Server, und lässt sich als statische Seite hosten (z. B. auf Vercel).
+A screener and visualizer for code projects. It runs entirely in the browser with no server and can be hosted as a static page (e.g. on Vercel).
 
-## Was er macht
+## What it does
 
-1. **Einlesen:** Standardbranch, rekursiver Dateibaum und README über die GitHub-API, oder ein lokaler Ordner, der den Browser nie verlässt.
-2. **Quellcode-Stichprobe:** bis zu 220 Quelldateien (JS/TS/Python), gleichmäßig über die Ordner verteilt. Daraus werden die Importe extrahiert und aufgelöst, inklusive `@/`-Alias, `index`-Dateien und relativer Python-Importe.
-3. **Bausteine:** Die Ordner werden adaptiv auf etwa 8 bis 16 Bausteine aufgeteilt. Wrapper wie `src/` oder `app/` werden aufgelöst, große Fachbereiche wie `todo/` in Components, Services, Shared und Model zerlegt. Jeder Baustein bekommt einen lesbaren Namen (z. B. „Todo Services“) und seine wichtigste Datei als Untertitel.
-4. **Zentrale Dateien als eigene Knoten:** Service-, Store-, Model- und Hook-Dateien, die von vielen anderen Dateien importiert werden (vor allem aus anderen Bausteinen), erscheinen als eigene Karte, z. B. „Todo Service“ (`todo.ts`) oder „Toast Service“ (`toast.service.ts`). Je nach Projektgröße sind es höchstens 2 bis 7, pro Ordner höchstens 2. Die Karte trägt ein Dateisymbol und einen farbigen Rand; im Panel führt „Teil von“ zurück zum Ordner.
-5. **Externe Dienste und Einstieg:** Paket-Importe werden bekannten Diensten zugeordnet, etwa Clerk, Supabase, Postgres, Redis, Stripe, OpenAI, S3, Sentry oder HTTP-APIs (mit dem Host aus den Umgebungsdateien). Ein Nutzer-Knoten zeigt auf die App-Shell.
-6. **Beziehungen:** Pro Baustein bleiben nur die stärksten Abhängigkeiten, jeder Baustein behält aber seinen stärksten eingehenden Pfeil. Schwache Abkürzungen über einen Zwischenbaustein fallen weg. Jede Beziehung trägt ein Verb („ruft auf“, „nutzt“, „authentifiziert“, „liest Konfig“ …), die Anzahl der Importe steht im Detail-Panel.
-7. **Architektur-Canvas:** Das Layout berechnet dagre von oben nach unten: Nutzer → App-Shell → Ansichten → Fachlogik → Kern → externe Dienste in der letzten Zeile. Die Linien laufen rechtwinklig mit runden Ecken, jede hat einen eigenen Anschlusspunkt an der Kartenkante, und parallele Querstrecken bekommen eigene Spuren. Tooling, Tests, Doku und Entwickler-Infrastruktur sind standardmäßig ausgeblendet und lassen sich über „Tooling & Tests“ einblenden. Bausteine ohne Verbindung stehen als kleine Chips darunter. Ein Klick auf eine Karte hebt ihre Pfade hervor und öffnet ein Detail-Panel mit Dateien, Sprachen, Beziehungen und Links zu GitHub.
+1. **Load:** default branch, recursive file tree and README via the GitHub API, or a local folder that never leaves your browser.
+2. **Source sample:** up to 220 source files (JS/TS/Python), spread evenly across folders. Imports are extracted and resolved, including the `@/` alias, `index` files and relative Python imports.
+3. **Components:** folders are split adaptively into roughly 8 to 16 components. Wrappers like `src/` or `app/` are unwrapped, large feature areas like `todo/` are split into components, services, shared and model. Each component gets a readable name (e.g. "Todo Services") and its most important file as a subtitle.
+4. **Key files as their own nodes:** service, store, model and hook files that many other files import (especially from other components) get their own card, e.g. "Todo Service" (`todo.ts`) or "Toast Service" (`toast.service.ts`). Between 2 and 7 per project depending on size, at most 2 per folder. File cards show a file icon and a colored edge; "Part of" in the panel leads back to the folder.
+5. **External services and entry point:** package imports are mapped to known services such as Clerk, Supabase, Postgres, Redis, Stripe, OpenAI, S3, Sentry or HTTP APIs (with the host taken from environment files). A user node points to the app shell.
+6. **Relationships:** each component keeps only its strongest dependencies, but always its strongest incoming arrow. Weak shortcuts through an intermediate component are dropped. Every relationship carries a verb ("calls", "uses", "authenticates", "reads config" …); the import count is shown in the detail panel and on hover.
+7. **Architecture canvas:** laid out with dagre. The direction is chosen automatically: both top-to-bottom and left-to-right are computed and the one that fits the screen larger wins (or pick ↓ / → yourself). User → app shell → views → feature logic → core → external services in the last row. Lines run at right angles with rounded corners, each with its own anchor point on the card edge, and parallel cross segments get separate lanes. Tooling, tests, docs and developer infrastructure are hidden by default and can be shown with "Tooling & Tests". Components without connections appear as small chips below.
 
-Außerdem:
+Also:
 
-- **Screening:** 10 Prüfungen mit Score. Geprüft werden README, Lizenz, CI, Testquote, Doku, Lockfile, Lint/Format, Deployment, eingecheckte `.env` und große Dateien.
-- **Stack-Erkennung** über Konfigurationsdateien und `package.json`/`requirements.txt`.
-- **Treemap:** Fläche = Dateigröße, Farbe = Sprache, Klick zoomt hinein.
-- Filterbarer **Dateibaum**.
-- **Export** des Diagramms als Mermaid-Quelltext.
+- **Screening:** 10 checks with a score: README, license, CI, test ratio, docs, lockfile, lint/format, deployment, committed `.env`, large files.
+- **Stack detection** from config files and `package.json`/`requirements.txt`.
+- **Treemap:** area = file size, color = language, click to zoom in.
+- Filterable **file tree**.
+- **Export** of the diagram as Mermaid source.
 
-## Bedienung
+## Usage
 
-| Aktion | Eingabe |
+| Action | Input |
 |---|---|
-| Arbeitsfläche verschieben | Ziehen (mit Schwung) oder Scrollen |
-| Zoomen | ⌘/Strg + Scrollen oder die Knöpfe unten links |
-| Komponente öffnen | Karte anklicken |
-| Panel schließen | ✕, `Esc` oder nach rechts wegziehen |
-| Suche fokussieren | `/` oder ⌘/Strg + K |
+| Pan the canvas | Drag (with momentum) or scroll |
+| Zoom | ⌘/Ctrl + scroll, `+` / `−`, or the buttons bottom left |
+| Fit to screen | `F` or the fit button |
+| Preview connections | Hover a card |
+| Open a component | Click a card |
+| Inspect a relationship | Hover a line; click jumps to its source |
+| Highlight a category | Hover a legend entry |
+| Close the panel | ✕, `Esc` or swipe it to the right |
+| Focus the search | `/` or ⌘/Ctrl + K |
 
-Mit `?repo=owner/repo` in der URL wird ein Repo direkt analysiert.
+Add `?repo=owner/repo` to the URL to analyze a repo directly.
 
-Ohne Token gilt das GitHub-Limit von 60 API-Aufrufen pro Stunde. Pro Analyse sind nur 2 API-Aufrufe nötig, die Quelldateien kommen über raw.githubusercontent.com. Für private Repos lässt sich über das Schlüssel-Symbol ein Token eintragen. Es bleibt nur im Arbeitsspeicher.
+Without a token, GitHub allows 60 API calls per hour. One analysis needs only 2 API calls; source files are fetched from raw.githubusercontent.com. For private repos, enter a token via the key icon. It is kept in memory only.
 
-## Entwicklung
+## Development
 
 ```bash
 python3 build.py
 ```
 
-Der Befehl erzeugt `public/index.html`. Die Datei kann direkt im Browser geöffnet werden.
+This produces `public/index.html`, which can be opened directly in a browser.
 
-| Datei | Zweck |
+| File | Purpose |
 |---|---|
-| `src/ui-head.html` | Styles und Markup |
-| `src/core.js` | Analyse: Sprachen, Komponenten, Importe, Stack, Screening, Lader |
-| `src/ui.js` | Oberfläche: Canvas, Federanimationen, Panel, Treemap, Dateien, Screening |
-| `src/sample.json` | Beispieldaten (Dateibaum und Importe eines öffentlichen Repos) |
-| `build.py` | setzt alles zu einer Seite zusammen |
-| `vercel.json` | Build-Konfiguration für Vercel |
+| `src/ui-head.html` | Styles and markup |
+| `src/core.js` | Analysis: languages, components, imports, stack, screening, loaders |
+| `src/ui.js` | UI: canvas, spring animations, panel, treemap, files, screening |
+| `src/sample.json` | Example data (file tree and imports of a public repo) |
+| `build.py` | Assembles everything into one page |
+| `vercel.json` | Build config for Vercel |
 
-Bibliotheken: d3 7.9.0 und dagre 0.8.5 (beide von cdnjs).
+Libraries: d3 7.9.0 and dagre 0.8.5 (both from cdnjs).
 
-## Deployment auf Vercel
+## Deploying to Vercel
 
-Repo in Vercel importieren. Build-Befehl und Ausgabeordner kommen aus `vercel.json`.
+Import the repo in Vercel. Build command and output directory come from `vercel.json`.

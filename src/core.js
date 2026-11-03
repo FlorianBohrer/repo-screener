@@ -12,7 +12,7 @@ const el = (tag, attrs = {}, ...kids) => {
 };
 const svgUse = id => { const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); const u = document.createElementNS("http://www.w3.org/2000/svg", "use"); u.setAttribute("href", "#" + id); s.append(u); return s; };
 const fmtBytes = b => b < 1024 ? b + " B" : b < 1048576 ? (b / 1024).toFixed(b < 10240 ? 1 : 0) + " KB" : (b / 1048576).toFixed(1) + " MB";
-const fmtInt = n => n.toLocaleString("de-DE");
+const fmtInt = n => n.toLocaleString("en-US");
 const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 /* Farbe als deckendes Hex (Mermaid-classDef verträgt keine Kommas aus rgba) – Alpha wird auf den Inhaltsgrund gemischt */
 function solid(name) {
@@ -46,8 +46,8 @@ function langOf(path) {
   if (b === "dockerfile" || b.startsWith("dockerfile.")) return LANGS.dockerfile;
   const ext = b.includes(".") ? b.slice(b.lastIndexOf(".") + 1) : "";
   if (LANGS[ext]) return LANGS[ext];
-  if (ASSET_EXT.has(ext) || b.endsWith(".lock") || b.endsWith("-lock.yaml") || b === "bun.lockb") return ["Assets/Lockfiles", "#b9c3bf"];
-  return ["Sonstige", "#c9d1ce"];
+  if (ASSET_EXT.has(ext) || b.endsWith(".lock") || b.endsWith("-lock.yaml") || b === "bun.lockb") return ["Assets/lockfiles", "#b9c3bf"];
+  return ["Other", "#c9d1ce"];
 }
 const isCode = p => /\.(m?[jt]sx?|[cm]ts|py|go|rs|java|kt|swift|rb|php|cs|c|h|cpp|cc|hpp|scala|dart|exs?|vue|svelte|astro)$/i.test(p);
 const isTest = p => /(^|\/)(tests?|__tests__|spec|e2e|cypress|playwright)(\/|$)|\.(test|spec)\.[a-z]+$|(^|\/)test_[^/]+\.py$|_test\.(go|py)$/i.test(p);
@@ -57,14 +57,14 @@ const isImportable = p => /\.(m?[jt]sx?|[cm]ts|py|vue|svelte)$/i.test(p);
 const CATS = {
   frontend:{label:"Frontend / UI", rx:/^(app|pages|components?|ui|views?|screens?|hooks|styles?|public|static|assets|frontend|web|client|features|layouts?|templates|widgets|www|site|mcp-app)$/i},
   backend:{label:"Backend / API", rx:/^(server|api|routes?|controllers?|handlers?|services?|backend|workers?|functions|lambdas?|middleware|jobs|queues?|cmd|grpc|graphql|resolvers|endpoints|proxy)$/i},
-  core:{label:"Kern & Daten", rx:/^(lib|libs|core|utils?|helpers|common|shared|models?|db|database|schema|entities|domain|store|stores|state|types|internal|pkg|packages|src|data|prisma|migrations|config)$/i},
-  infra:{label:"Infrastruktur & CI", rx:/^(\.github|\.gitlab|\.circleci|docker|deploy|deployment|infra|infrastructure|k8s|kubernetes|helm|terraform|ops|cloudflare|scripts|bin|\.githooks|ci|\.devcontainer|nginx|ansible)$/i},
+  core:{label:"Core & Data", rx:/^(lib|libs|core|utils?|helpers|common|shared|models?|db|database|schema|entities|domain|store|stores|state|types|internal|pkg|packages|src|data|prisma|migrations|config)$/i},
+  infra:{label:"Infrastructure & CI", rx:/^(\.github|\.gitlab|\.circleci|docker|deploy|deployment|infra|infrastructure|k8s|kubernetes|helm|terraform|ops|cloudflare|scripts|bin|\.githooks|ci|\.devcontainer|nginx|ansible)$/i},
   tests:{label:"Tests", rx:/^(tests?|__tests__|spec|specs|e2e|cypress|playwright|fixtures|testing)$/i},
-  docs:{label:"Dokumentation", rx:/^(docs?|documentation|wiki|guides?|examples?|samples?)$/i},
-  tooling:{label:"Tooling & Experimente", rx:/^(tools?|experiments?|plugins?|extensions?|benchmarks?|bench|playground|sandbox|patches|contrib|hack)$/i},
-  config:{label:"Projektwurzel / Konfiguration", rx:/^$/},
-  external:{label:"Externe Dienste", rx:/^$/},
-  user:{label:"Nutzer", rx:/^$/},
+  docs:{label:"Documentation", rx:/^(docs?|documentation|wiki|guides?|examples?|samples?)$/i},
+  tooling:{label:"Tooling & Experiments", rx:/^(tools?|experiments?|plugins?|extensions?|benchmarks?|bench|playground|sandbox|patches|contrib|hack)$/i},
+  config:{label:"Project Root / Config", rx:/^$/},
+  external:{label:"External Services", rx:/^$/},
+  user:{label:"User", rx:/^$/},
 };
 const CAT_ORDER = ["user","frontend","backend","core","infra","tooling","tests","docs","config","external"];
 function categorize(compPath, hint) {
@@ -116,21 +116,21 @@ function extractImports(path, text) {
 
 /* ============ Externe Dienste: Paketnamen → Dienst ============ */
 const EXTERNALS = [
-  { id: "auth", label: "Anmeldung", js: /^(ngx-clerk|@clerk\/|@auth0\/|next-auth|@supabase\/auth|firebase\/auth|@okta\/|keycloak|passport)/, py: /^(authlib|flask_login|django\.contrib\.auth)$/, verb: "authentifiziert",
+  { id: "auth", label: "Authentication", js: /^(ngx-clerk|@clerk\/|@auth0\/|next-auth|@supabase\/auth|firebase\/auth|@okta\/|keycloak|passport)/, py: /^(authlib|flask_login|django\.contrib\.auth)$/, verb: "authenticates",
     name: sp => /clerk/.test(sp) ? "Clerk" : /auth0/.test(sp) ? "Auth0" : /next-auth/.test(sp) ? "NextAuth" : /okta/.test(sp) ? "Okta" : /keycloak/.test(sp) ? "Keycloak" : /passport/.test(sp) ? "Passport" : "Auth" },
-  { id: "http", label: "Backend-API", js: /^(@angular\/common\/http|axios|ky|got|node-fetch|ofetch|@tanstack\/react-query|swr|@apollo\/client|graphql-request|@trpc\/client)/, py: /^(requests|httpx|aiohttp|urllib3)$/, verb: "ruft auf", name: () => "HTTP" },
-  { id: "db", label: "Datenbank", js: /^(pg|postgres|@neondatabase\/|mysql2?|mongodb|mongoose|@prisma\/client|drizzle-orm|typeorm|sequelize|better-sqlite3|sqlite3|knex|@planetscale\/|@libsql\/)/, py: /^(sqlalchemy|psycopg2?|pymongo|sqlite3|asyncpg|peewee|motor|django\.db)$/, verb: "speichert",
-    name: sp => /neon/.test(sp) ? "Neon Postgres" : /(^pg$|postgres|psycopg|asyncpg)/.test(sp) ? "Postgres" : /mongo|motor/.test(sp) ? "MongoDB" : /mysql/.test(sp) ? "MySQL" : /prisma/.test(sp) ? "Prisma ORM" : /drizzle/.test(sp) ? "Drizzle ORM" : /sqlite/.test(sp) ? "SQLite" : "Datenbank" },
-  { id: "cache", label: "Cache", js: /^(redis|ioredis|@upstash\/redis|@vercel\/kv)/, py: /^(redis)$/, verb: "cacht", name: () => "Redis" },
-  { id: "baas", label: "Backend-as-a-Service", js: /^(@supabase\/supabase-js|firebase(\/(app|firestore|database))?$|firebase-admin|appwrite|pocketbase)/, py: /^(supabase|firebase_admin)$/, verb: "synchronisiert",
+  { id: "http", label: "Backend API", js: /^(@angular\/common\/http|axios|ky|got|node-fetch|ofetch|@tanstack\/react-query|swr|@apollo\/client|graphql-request|@trpc\/client)/, py: /^(requests|httpx|aiohttp|urllib3)$/, verb: "calls", name: () => "HTTP" },
+  { id: "db", label: "Database", js: /^(pg|postgres|@neondatabase\/|mysql2?|mongodb|mongoose|@prisma\/client|drizzle-orm|typeorm|sequelize|better-sqlite3|sqlite3|knex|@planetscale\/|@libsql\/)/, py: /^(sqlalchemy|psycopg2?|pymongo|sqlite3|asyncpg|peewee|motor|django\.db)$/, verb: "stores data",
+    name: sp => /neon/.test(sp) ? "Neon Postgres" : /(^pg$|postgres|psycopg|asyncpg)/.test(sp) ? "Postgres" : /mongo|motor/.test(sp) ? "MongoDB" : /mysql/.test(sp) ? "MySQL" : /prisma/.test(sp) ? "Prisma ORM" : /drizzle/.test(sp) ? "Drizzle ORM" : /sqlite/.test(sp) ? "SQLite" : "Database" },
+  { id: "cache", label: "Cache", js: /^(redis|ioredis|@upstash\/redis|@vercel\/kv)/, py: /^(redis)$/, verb: "caches", name: () => "Redis" },
+  { id: "baas", label: "Backend-as-a-Service", js: /^(@supabase\/supabase-js|firebase(\/(app|firestore|database))?$|firebase-admin|appwrite|pocketbase)/, py: /^(supabase|firebase_admin)$/, verb: "syncs",
     name: sp => /supabase/.test(sp) ? "Supabase" : /firebase/.test(sp) ? "Firebase" : /appwrite/.test(sp) ? "Appwrite" : "PocketBase" },
-  { id: "ai", label: "KI-API", js: /^(openai|@anthropic-ai\/sdk|@google\/generative-ai|@google\/genai|cohere-ai|@mistralai\/|ai$|@ai-sdk\/|replicate)/, py: /^(openai|anthropic|google\.generativeai|cohere|mistralai|transformers|langchain)$/, verb: "fragt an",
-    name: sp => /openai/.test(sp) ? "OpenAI" : /anthropic/.test(sp) ? "Anthropic" : /google/.test(sp) ? "Gemini" : /mistral/.test(sp) ? "Mistral" : /cohere/.test(sp) ? "Cohere" : /langchain/.test(sp) ? "LangChain" : "KI-API" },
-  { id: "pay", label: "Zahlungen", js: /^(stripe|@stripe\/|@paypal\/|@lemonsqueezy\/)/, py: /^(stripe)$/, verb: "rechnet ab", name: sp => /paypal/.test(sp) ? "PayPal" : /lemon/.test(sp) ? "Lemon Squeezy" : "Stripe" },
-  { id: "mail", label: "E-Mail", js: /^(resend|nodemailer|@sendgrid\/|postmark|@react-email\/)/, py: /^(smtplib|sendgrid)$/, verb: "versendet", name: sp => /resend/.test(sp) ? "Resend" : /sendgrid/.test(sp) ? "SendGrid" : /postmark/.test(sp) ? "Postmark" : "E-Mail" },
-  { id: "storage", label: "Dateispeicher", js: /^(@aws-sdk\/client-s3|@vercel\/blob|@google-cloud\/storage|minio|uploadthing)/, py: /^(boto3|google\.cloud\.storage|minio)$/, verb: "lädt hoch", name: sp => /vercel/.test(sp) ? "Vercel Blob" : /google/.test(sp) ? "Cloud Storage" : "S3" },
-  { id: "realtime", label: "Echtzeit", js: /^(socket\.io-client|socket\.io|mqtt|ws$|pusher|@pusher\/|ably|@liveblocks\/|partysocket)/, py: /^(paho|websockets|socketio)$/, verb: "streamt", name: sp => /mqtt|paho/.test(sp) ? "MQTT-Broker" : /pusher/.test(sp) ? "Pusher" : /liveblocks/.test(sp) ? "Liveblocks" : "WebSocket" },
-  { id: "obs", label: "Monitoring", js: /^(@sentry\/|posthog-js|posthog-node|@vercel\/analytics|mixpanel|@datadog\/)/, py: /^(sentry_sdk|posthog)$/, verb: "meldet", name: sp => /sentry/.test(sp) ? "Sentry" : /posthog/.test(sp) ? "PostHog" : /vercel/.test(sp) ? "Vercel Analytics" : /mixpanel/.test(sp) ? "Mixpanel" : "Datadog" },
+  { id: "ai", label: "AI API", js: /^(openai|@anthropic-ai\/sdk|@google\/generative-ai|@google\/genai|cohere-ai|@mistralai\/|ai$|@ai-sdk\/|replicate)/, py: /^(openai|anthropic|google\.generativeai|cohere|mistralai|transformers|langchain)$/, verb: "prompts",
+    name: sp => /openai/.test(sp) ? "OpenAI" : /anthropic/.test(sp) ? "Anthropic" : /google/.test(sp) ? "Gemini" : /mistral/.test(sp) ? "Mistral" : /cohere/.test(sp) ? "Cohere" : /langchain/.test(sp) ? "LangChain" : "AI API" },
+  { id: "pay", label: "Payments", js: /^(stripe|@stripe\/|@paypal\/|@lemonsqueezy\/)/, py: /^(stripe)$/, verb: "charges", name: sp => /paypal/.test(sp) ? "PayPal" : /lemon/.test(sp) ? "Lemon Squeezy" : "Stripe" },
+  { id: "mail", label: "Email", js: /^(resend|nodemailer|@sendgrid\/|postmark|@react-email\/)/, py: /^(smtplib|sendgrid)$/, verb: "sends email", name: sp => /resend/.test(sp) ? "Resend" : /sendgrid/.test(sp) ? "SendGrid" : /postmark/.test(sp) ? "Postmark" : "Email" },
+  { id: "storage", label: "File Storage", js: /^(@aws-sdk\/client-s3|@vercel\/blob|@google-cloud\/storage|minio|uploadthing)/, py: /^(boto3|google\.cloud\.storage|minio)$/, verb: "uploads", name: sp => /vercel/.test(sp) ? "Vercel Blob" : /google/.test(sp) ? "Cloud Storage" : "S3" },
+  { id: "realtime", label: "Realtime", js: /^(socket\.io-client|socket\.io|mqtt|ws$|pusher|@pusher\/|ably|@liveblocks\/|partysocket)/, py: /^(paho|websockets|socketio)$/, verb: "streams", name: sp => /mqtt|paho/.test(sp) ? "MQTT-Broker" : /pusher/.test(sp) ? "Pusher" : /liveblocks/.test(sp) ? "Liveblocks" : "WebSocket" },
+  { id: "obs", label: "Monitoring", js: /^(@sentry\/|posthog-js|posthog-node|@vercel\/analytics|mixpanel|@datadog\/)/, py: /^(sentry_sdk|posthog)$/, verb: "reports", name: sp => /sentry/.test(sp) ? "Sentry" : /posthog/.test(sp) ? "PostHog" : /vercel/.test(sp) ? "Vercel Analytics" : /mixpanel/.test(sp) ? "Mixpanel" : "Datadog" },
 ];
 function externalFor(spec) {
   const js = spec.startsWith("pkg:"), name = spec.slice(js ? 4 : 3).replace(/^\.+/, "");
@@ -299,8 +299,8 @@ function analyze(data) {
     const base = basename(real), parent = basename(dirname(real));
     const mf = mainFile(c.files);
     let label;
-    if (c.key === "/*") label = "Projektwurzel";
-    else if (c.key.endsWith("/*")) label = mf && ENTRY.test(mf.path) ? (/(^|\/)(app|App)\./.test(mf.path) ? "App-Shell" : "Einstieg") : mf && /\.(config|routes?)\./.test(mf.path) ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : STRIP.test(base) && mf ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : human(base) + (GENERIC.test(base) ? "" : " Logik");
+    if (c.key === "/*") label = "Project Root";
+    else if (c.key.endsWith("/*")) label = mf && ENTRY.test(mf.path) ? (/(^|\/)(app|App)\./.test(mf.path) ? "App Shell" : "Entry Point") : mf && /\.(config|routes?)\./.test(mf.path) ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : STRIP.test(base) && mf ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : human(base) + (GENERIC.test(base) ? "" : " Logic");
     else if (GENERIC.test(base) && parent && !STRIP.test(parent)) label = human(parent) + " " + human(base);
     else label = human(base);
     const testShare = c.files.filter(f => isTest(f.path)).length / Math.max(1, c.files.length);
@@ -311,7 +311,7 @@ function analyze(data) {
     return { id: "n" + i, key: c.key, path: real, label, cat, files: c.files, bytes: c.bytes, main: mf ? basename(mf.path) : null, code: c.files.filter(f => isSrc(f.path)).length, isDir: !c.key.endsWith("/*"), domain: domainOf(real), kind: "comp" };
   });
   /* Reine Konfigurations-/Routing-Bausteine (z. B. app.config.ts, app.routes.ts) gehören zur App-Shell */
-  const shellNode = nodes.find(n => n.label === "App-Shell");
+  const shellNode = nodes.find(n => n.label === "App Shell");
   if (shellNode) nodes = nodes.filter(n => {
     if (n === shellNode || n.kind !== "comp") return true;
     const src = n.files.filter(f => isSrc(f.path));
@@ -360,7 +360,7 @@ function analyze(data) {
   extUse.forEach(({ x, from }, k) => {
     const id = "x_" + k;
     let label = x.name;
-    if (x.id === "http") label = realHosts.length ? "API · " + realHosts[0] : "Backend-API";
+    if (x.id === "http") label = realHosts.length ? "API · " + realHosts[0] : "Backend API";
     else if (x.name !== x.label) label = x.name;
     nodes.push({ id, key: id, path: "", label, cat: "external", files: [], bytes: 0, main: x.label, code: 0, isDir: false, domain: "", kind: "ext", group: CATS.external.label, verb: x.verb });
     from.forEach((w, fid) => allEdges.push({ from: fid, to: id, w, ext: true }));
@@ -373,8 +373,8 @@ function analyze(data) {
   if (hasUi && entryNode) {
     /* bevorzugt die App-Shell, die die meisten anderen Bausteine einbindet */
     const outDeg = id => allEdges.filter(e => e.from === id && !e.ext).length;
-    const shell = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && /App-Shell|Einstieg/.test(n.label)).sort((x, y) => outDeg(y.id) - outDeg(x.id))[0] || entryNode;
-    nodes.push({ id: "u_user", key: "u_user", path: "", label: "Nutzer", cat: "user", files: [], bytes: 0, main: null, code: 0, isDir: false, domain: "", kind: "user", group: "" });
+    const shell = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && /App Shell|Entry Point/.test(n.label)).sort((x, y) => outDeg(y.id) - outDeg(x.id))[0] || entryNode;
+    nodes.push({ id: "u_user", key: "u_user", path: "", label: "User", cat: "user", files: [], bytes: 0, main: null, code: 0, isDir: false, domain: "", kind: "user", group: "" });
     allEdges.push({ from: "u_user", to: shell.id, w: 0, user: true });
   }
 
@@ -419,14 +419,14 @@ function analyze(data) {
   extBy.forEach(list => { const l = list.sort((x, y) => side(x) - side(y) || y.w - x.w); edges.push(l[0], ...l.slice(1, 2).filter(e => e.w >= Math.max(2, l[0].w / 3))); });
   edges.push(...allEdges.filter(e => e.user));
   const verb = (e) => {
-    if (e.user) return "nutzt";
+    if (e.user) return "uses";
     const t = byId.get(e.to);
-    if (e.ext) return t.verb || "nutzt";
-    if (/model|types?|entities|schema/i.test(t.path)) return "verwendet";
-    if (t.cat === "backend" || /services?|store|state|api/i.test(basename(t.path)) || /\.(service|store|api|client)\./.test(t.main || "")) return "ruft auf";
-    if (t.cat === "frontend") return /(Dateien)|Shell/.test(byId.get(e.from).label) ? "zeigt" : "bindet ein";
-    if (t.cat === "config" || /environ|config/i.test(t.path)) return "liest Konfig";
-    return "nutzt";
+    if (e.ext) return t.verb || "uses";
+    if (/model|types?|entities|schema/i.test(t.path)) return "uses model";
+    if (t.cat === "backend" || /services?|store|state|api/i.test(basename(t.path)) || /\.(service|store|api|client)\./.test(t.main || "")) return "calls";
+    if (t.cat === "frontend") return /Shell|Entry/.test(byId.get(e.from).label) ? "shows" : "renders";
+    if (t.cat === "config" || /environ|config/i.test(t.path)) return "reads config";
+    return "uses";
   };
   edges.forEach(e => { e.verb = verb(e); });
   allEdges.forEach(e => { if (!e.verb) e.verb = verb(e); });
@@ -459,16 +459,16 @@ function analyze(data) {
   const mdCount = files.filter(f => /\.mdx?$/i.test(f.path)).length;
   const envCommitted = files.filter(f => /(^|\/)\.env(\.local|\.production)?$/.test(f.path));
   const checks = [
-    { t: "README", s: has(/^readme(\.\w+)?$/i) ? "ok" : "bad", w: has(/^readme(\.\w+)?$/i) ? "Im Wurzelverzeichnis vorhanden" : "Keine README im Wurzelverzeichnis" },
-    { t: "Lizenz", s: has(/^(licen[cs]e|copying)(\.\w+)?$/i) ? "ok" : "warn", w: has(/^(licen[cs]e|copying)(\.\w+)?$/i) ? "Lizenzdatei gefunden" : "Ohne Lizenz ist die Nutzung rechtlich unklar" },
-    { t: "Continuous Integration", s: has(/^(\.github\/workflows\/|\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|Jenkinsfile|\.buildkite\/)/) ? "ok" : "warn", w: (() => { const n = files.filter(f => /^\.github\/workflows\//.test(f.path)).length; return n ? n + " GitHub-Workflow" + (n > 1 ? "s" : "") : has(/^(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|Jenkinsfile)/) ? "CI-Konfiguration gefunden" : "Keine CI-Pipeline erkannt"; })() },
-    { t: "Tests", s: tests.length === 0 ? "bad" : ratio < 0.08 ? "warn" : "ok", w: tests.length === 0 ? "Keine Testdateien erkannt" : `${fmtInt(tests.length)} Testdateien auf ${fmtInt(src)} Quelldateien (${(ratio * 100).toFixed(0)} %)` },
-    { t: "Dokumentation", s: has(/^docs?\//i) || mdCount > 4 ? "ok" : "warn", w: `${mdCount} Markdown-Datei${mdCount === 1 ? "" : "en"}${has(/^docs?\//i) ? ", eigener docs-Ordner" : ""}` },
-    { t: "Reproduzierbare Abhängigkeiten", s: has(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/) ? "ok" : (has(/(^|\/)(package\.json|pyproject\.toml|Cargo\.toml|go\.mod)$/) ? "warn" : "na"), w: has(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/) ? "Lockfile eingecheckt" : "Kein Lockfile gefunden" },
-    { t: "Code-Qualität (Lint/Format)", s: has(/(^|\/)(\.eslintrc[^/]*|eslint\.config\.[cm]?js|\.prettierrc[^/]*|prettier\.config\.[cm]?js|biome\.jsonc?|ruff\.toml|\.flake8|\.editorconfig|\.golangci\.ya?ml|rustfmt\.toml|\.rubocop\.yml)$/) ? "ok" : "warn", w: has(/(^|\/)(\.eslintrc[^/]*|eslint\.config\.[cm]?js|\.prettierrc[^/]*|prettier\.config\.[cm]?js|biome\.jsonc?|ruff\.toml|\.flake8|\.editorconfig|\.golangci\.ya?ml|rustfmt\.toml|\.rubocop\.yml)$/) ? "Linter- oder Formatter-Konfiguration vorhanden" : "Keine Lint-/Format-Konfiguration erkannt" },
-    { t: "Container / Deployment", s: has(/(^|\/)(Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|compose\.ya?ml|wrangler[^/]*\.(toml|jsonc?)|vercel\.json|netlify\.toml|fly\.toml|railway\.json|Procfile)$/) ? "ok" : "na", w: has(/(^|\/)(Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|compose\.ya?ml|wrangler[^/]*\.(toml|jsonc?)|vercel\.json|netlify\.toml|fly\.toml|railway\.json|Procfile)$/) ? "Deployment-Konfiguration gefunden" : "Keine Deployment-Konfiguration" },
-    { t: "Geheimnisse", s: envCommitted.length ? "bad" : "ok", w: envCommitted.length ? envCommitted.map(f => f.path).join(", ") + " ist eingecheckt" : has(/\.env\.(example|sample|template)$/) ? "Nur .env-Vorlage eingecheckt" : "Keine .env-Datei eingecheckt" },
-    { t: "Große Dateien", s: big.length ? "warn" : "ok", w: big.length ? big.length + " Datei(en) über 1 MB, z. B. " + big[0].path : "Keine Nicht-Mediendatei über 1 MB" },
+    { t: "README", s: has(/^readme(\.\w+)?$/i) ? "ok" : "bad", w: has(/^readme(\.\w+)?$/i) ? "Present in the root directory" : "No README in the root directory" },
+    { t: "License", s: has(/^(licen[cs]e|copying)(\.\w+)?$/i) ? "ok" : "warn", w: has(/^(licen[cs]e|copying)(\.\w+)?$/i) ? "License file found" : "Without a license, reuse is legally unclear" },
+    { t: "Continuous Integration", s: has(/^(\.github\/workflows\/|\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|Jenkinsfile|\.buildkite\/)/) ? "ok" : "warn", w: (() => { const n = files.filter(f => /^\.github\/workflows\//.test(f.path)).length; return n ? n + " GitHub workflow" + (n > 1 ? "s" : "") : has(/^(\.gitlab-ci\.yml|\.circleci\/|azure-pipelines\.yml|Jenkinsfile)/) ? "CI configuration found" : "No CI pipeline detected"; })() },
+    { t: "Tests", s: tests.length === 0 ? "bad" : ratio < 0.08 ? "warn" : "ok", w: tests.length === 0 ? "No test files detected" : `${fmtInt(tests.length)} test files for ${fmtInt(src)} source files (${(ratio * 100).toFixed(0)}%)` },
+    { t: "Documentation", s: has(/^docs?\//i) || mdCount > 4 ? "ok" : "warn", w: `${mdCount} Markdown file${mdCount === 1 ? "" : "s"}${has(/^docs?\//i) ? ", dedicated docs folder" : ""}` },
+    { t: "Reproducible dependencies", s: has(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/) ? "ok" : (has(/(^|\/)(package\.json|pyproject\.toml|Cargo\.toml|go\.mod)$/) ? "warn" : "na"), w: has(/(^|\/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|bun\.lockb?|poetry\.lock|uv\.lock|Pipfile\.lock|Cargo\.lock|go\.sum|Gemfile\.lock|composer\.lock)$/) ? "Lockfile committed" : "No lockfile found" },
+    { t: "Code quality (lint/format)", s: has(/(^|\/)(\.eslintrc[^/]*|eslint\.config\.[cm]?js|\.prettierrc[^/]*|prettier\.config\.[cm]?js|biome\.jsonc?|ruff\.toml|\.flake8|\.editorconfig|\.golangci\.ya?ml|rustfmt\.toml|\.rubocop\.yml)$/) ? "ok" : "warn", w: has(/(^|\/)(\.eslintrc[^/]*|eslint\.config\.[cm]?js|\.prettierrc[^/]*|prettier\.config\.[cm]?js|biome\.jsonc?|ruff\.toml|\.flake8|\.editorconfig|\.golangci\.ya?ml|rustfmt\.toml|\.rubocop\.yml)$/) ? "Linter or formatter config present" : "No lint/format config detected" },
+    { t: "Container / Deployment", s: has(/(^|\/)(Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|compose\.ya?ml|wrangler[^/]*\.(toml|jsonc?)|vercel\.json|netlify\.toml|fly\.toml|railway\.json|Procfile)$/) ? "ok" : "na", w: has(/(^|\/)(Dockerfile[^/]*|docker-compose[^/]*\.ya?ml|compose\.ya?ml|wrangler[^/]*\.(toml|jsonc?)|vercel\.json|netlify\.toml|fly\.toml|railway\.json|Procfile)$/) ? "Deployment config found" : "No deployment config" },
+    { t: "Secrets", s: envCommitted.length ? "bad" : "ok", w: envCommitted.length ? envCommitted.map(f => f.path).join(", ") + " is committed" : has(/\.env\.(example|sample|template)$/) ? "Only an .env template is committed" : "No .env file committed" },
+    { t: "Large files", s: big.length ? "warn" : "ok", w: big.length ? big.length + " file(s) over 1 MB, e.g. " + big[0].path : "No non-media file over 1 MB" },
   ];
   const scored = checks.filter(c => c.s !== "na");
   const score = Math.round(scored.reduce((a, c) => a + (c.s === "ok" ? 1 : c.s === "warn" ? 0.5 : 0), 0) / Math.max(1, scored.length) * 100);
@@ -514,7 +514,7 @@ function heuristicAst(A) {
   const linked = new Set(A.edges.flatMap(e => [e.from, e.to]));
   const nodes = A.nodes.filter(n => n.files.length > 0 || n.kind !== "comp").map(n => ({
     id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main, side: n.side, count: n.files.length, file: n.file, parentId: n.parentId, parentLabel: n.parentLabel,
-    sub: n.kind === "comp" ? `${fmtInt(n.files.length)} Dateien · ${fmtBytes(n.bytes)}` : "", linked: linked.has(n.id),
+    sub: n.kind === "comp" ? `${fmtInt(n.files.length)} files · ${fmtBytes(n.bytes)}` : "", linked: linked.has(n.id),
   }));
   return { nodes, edges: A.edges.map(e => ({ from: e.from, to: e.to, w: e.w, label: e.verb })) };
 }
@@ -528,26 +528,26 @@ function parseRepo(s) {
 }
 async function gh(path, token, accept = "application/vnd.github+json") {
   const r = await fetch("https://api.github.com" + path, { headers: { Accept: accept, ...(token ? { Authorization: "Bearer " + token } : {}) } });
-  if (!r.ok) { const e = new Error(r.status === 404 ? "Repository nicht gefunden oder privat (Token angeben)." : r.status === 403 || r.status === 429 ? "GitHub-Ratenlimit erreicht. Mit Token erneut versuchen oder später." : "GitHub antwortet mit " + r.status); e.status = r.status; throw e; }
+  if (!r.ok) { const e = new Error(r.status === 404 ? "Repository not found or private (add a token)." : r.status === 403 || r.status === 429 ? "GitHub rate limit reached. Try again with a token or later." : "GitHub responded with " + r.status); e.status = r.status; throw e; }
   return accept.includes("raw") ? r.text() : r.json();
 }
 async function loadGitHub(input) {
-  const p = parseRepo(input); if (!p) throw new Error("Bitte im Format owner/repo oder als GitHub-URL eingeben.");
+  const p = parseRepo(input); if (!p) throw new Error("Enter owner/repo or a GitHub URL.");
   const token = $("#tokenInput").value.trim();
   logStart();
-  let s = logStep(`Repository ${p.owner}/${p.repo} abrufen …`);
+  let s = logStep(`Fetching repository ${p.owner}/${p.repo} …`);
   let meta;
   try { meta = await gh(`/repos/${p.owner}/${p.repo}`, token); }
-  catch (e) { if (e instanceof TypeError) throw new Error("Netzwerkzugriff auf GitHub ist in dieser Ansicht blockiert. Öffne die Datei index.html lokal im Browser oder nutze »Ordner wählen«."); throw e; }
-  const branch = p.ref || meta.default_branch; logDone(s, `Repository gefunden · Branch ${branch} · ★ ${fmtInt(meta.stargazers_count || 0)}`);
-  s = logStep("Dateibaum laden …");
+  catch (e) { if (e instanceof TypeError) throw new Error("Network access to GitHub is blocked in this view. Open index.html locally in your browser or use “Folder”."); throw e; }
+  const branch = p.ref || meta.default_branch; logDone(s, `Repository found · branch ${branch} · ★ ${fmtInt(meta.stargazers_count || 0)}`);
+  s = logStep("Loading file tree …");
   const tree = await gh(`/repos/${p.owner}/${p.repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`, token);
   const files = tree.tree.filter(t => t.type === "blob" && !t.path.split("/").some(x => IGNORE_DIRS.has(x))).map(t => [t.path, t.size || 0]);
-  logDone(s, `${fmtInt(files.length)} Dateien${tree.truncated ? " (von GitHub gekürzt)" : ""}`);
+  logDone(s, `${fmtInt(files.length)} files${tree.truncated ? " (truncated by GitHub)" : ""}`);
   const raw = async path => token
     ? gh(`/repos/${p.owner}/${p.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${encodeURIComponent(branch)}`, token, "application/vnd.github.raw")
     : fetch(`https://raw.githubusercontent.com/${p.owner}/${p.repo}/${encodeURIComponent(branch)}/${path.split("/").map(encodeURIComponent).join("/")}`).then(r => r.ok ? r.text() : "");
-  s = logStep("README und Manifeste lesen …");
+  s = logStep("Reading README and manifests …");
   const readmePath = files.find(f => /^readme(\.md|\.rst|\.txt)?$/i.test(f[0]))?.[0];
   const readme = readmePath ? (await raw(readmePath).catch(() => "")).slice(0, 4000) : "";
   const deps = [];
@@ -556,38 +556,38 @@ async function loadGitHub(input) {
   }
   const req = files.find(f => /(^|\/)requirements\.txt$/.test(f[0]));
   if (req) { try { (await raw(req[0])).split("\n").forEach(l => { const m = l.trim().match(/^([A-Za-z0-9_.-]+)/); if (m && !l.startsWith("#")) deps.push(m[1].toLowerCase()); }); } catch {} }
-  logDone(s, `README ${readme ? "gelesen" : "fehlt"} · ${deps.length} Abhängigkeiten`);
+  logDone(s, `README ${readme ? "read" : "missing"} · ${deps.length} dependencies`);
   /* Quellcode-Stichprobe: gleichmäßig über Top-Ordner verteilt (wie GitDiagram: begrenzte Auszüge) */
   const cand = files.filter(f => isImportable(f[0]) && !isTest(f[0]) && f[1] < 200000);
   const buckets = new Map(); cand.forEach(f => { const k = f[0].split("/").slice(0, 2).join("/"); if (!buckets.has(k)) buckets.set(k, []); buckets.get(k).push(f); });
   const pick = []; const LIMIT = token ? 160 : 220; let round = 0;
   const bl = [...buckets.values()]; bl.forEach(b => b.sort((a, c) => c[1] - a[1]));
   while (pick.length < LIMIT && bl.some(b => b.length > round)) { for (const b of bl) if (b[round] && pick.length < LIMIT) pick.push(b[round]); round++; }
-  s = logStep(`Quellcode lesen: 0 / ${pick.length}`);
+  s = logStep(`Reading source: 0 / ${pick.length}`);
   const imports = {}; let done = 0;
   const queue = [...pick];
   await Promise.all(Array.from({ length: 8 }, async () => {
-    while (queue.length) { const f = queue.shift(); try { const t = await raw(f[0]); const sp = extractImports(f[0], t); if (sp.length) imports[f[0]] = sp; } catch {} done++; s.lastChild.textContent = `Quellcode lesen: ${done} / ${pick.length}`; }
+    while (queue.length) { const f = queue.shift(); try { const t = await raw(f[0]); const sp = extractImports(f[0], t); if (sp.length) imports[f[0]] = sp; } catch {} done++; s.lastChild.textContent = `Reading source: ${done} / ${pick.length}`; }
   }));
-  logDone(s, `${pick.length} Quelldateien gelesen, ${Object.keys(imports).length} mit Importen`);
+  logDone(s, `${pick.length} source files read, ${Object.keys(imports).length} with imports`);
   return { source: "github", repo: `${p.owner}/${p.repo}`, branch, description: meta.description, files, imports, readme, deps, truncated: tree.truncated };
 }
 
 /* ============ Laden: lokaler Ordner ============ */
 async function loadLocal(fileList) {
-  const all = [...fileList]; if (!all.length) throw new Error("Der Ordner ist leer.");
+  const all = [...fileList]; if (!all.length) throw new Error("The folder is empty.");
   logStart();
   const rootName = (all[0].webkitRelativePath || all[0].name).split("/")[0];
   const items = all.map(f => ({ f, path: (f.webkitRelativePath || f.name).split("/").slice(1).join("/") }))
     .filter(x => x.path && !x.path.split("/").some(s => IGNORE_DIRS.has(s)));
-  let s = logStep(`${fmtInt(items.length)} Dateien aus »${rootName}« erfasst`); logDone(s);
+  let s = logStep(`${fmtInt(items.length)} files collected from “${rootName}”`); logDone(s);
   const files = items.map(x => [x.path, x.f.size]);
   const imports = {}; let readme = "", deps = [];
   const src = items.filter(x => isImportable(x.path) && x.f.size < 400000).slice(0, 4000);
-  s = logStep(`Importe analysieren: 0 / ${src.length}`);
+  s = logStep(`Analyzing imports: 0 / ${src.length}`);
   let i = 0;
-  for (const x of src) { const sp = extractImports(x.path, await x.f.text()); if (sp.length) imports[x.path] = sp; if (++i % 50 === 0) s.lastChild.textContent = `Importe analysieren: ${i} / ${src.length}`; }
-  logDone(s, `${src.length} Quelldateien analysiert`);
+  for (const x of src) { const sp = extractImports(x.path, await x.f.text()); if (sp.length) imports[x.path] = sp; if (++i % 50 === 0) s.lastChild.textContent = `Analyzing imports: ${i} / ${src.length}`; }
+  logDone(s, `${src.length} source files analyzed`);
   const rd = items.find(x => /^readme(\.md|\.rst|\.txt)?$/i.test(x.path)); if (rd) readme = (await rd.f.text()).slice(0, 4000);
   for (const x of items.filter(x => /(^|\/)package\.json$/.test(x.path)).slice(0, 6)) { try { const pj = JSON.parse(await x.f.text()); deps.push(...Object.keys(pj.dependencies || {}), ...Object.keys(pj.devDependencies || {})); } catch {} }
   const rq = items.find(x => /(^|\/)requirements\.txt$/.test(x.path)); if (rq) (await rq.f.text()).split("\n").forEach(l => { const m = l.trim().match(/^([A-Za-z0-9_.-]+)/); if (m && !l.startsWith("#")) deps.push(m[1].toLowerCase()); });

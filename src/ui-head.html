@@ -171,6 +171,11 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .edge.hot{stroke:var(--edge-hot)}
 .flow.hot{opacity:1}
 .edge.dim{opacity:.12}
+.canvas.preview .edge.dim{opacity:.22}
+.canvas.preview .card.dim,.canvas.preview .grp.dim{opacity:.5}
+.edge.hover{stroke:var(--edge-hot);opacity:1}
+.hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.canvas.far .elabel:not(.hot){opacity:0}
 .flow.dim{opacity:0}
 @keyframes flow{to{stroke-dashoffset:-14}}
 .elabel{position:absolute;transform:translate(-50%,-50%);font-size:10.5px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:99px;padding:0 6px;line-height:16px;white-space:nowrap;pointer-events:none;transition:opacity .25s,color .25s,border-color .25s}
@@ -185,9 +190,9 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .summary .eyebrow{font-size:11px;color:var(--text-3);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .summary h1{margin:3px 0 2px;font-size:17px;font-weight:700;letter-spacing:-.022em;line-height:1.25;display:flex;align-items:center;gap:8px;flex-wrap:wrap;overflow-wrap:anywhere}
 .summary h1 a{color:inherit}
-.summary p{margin:0;color:var(--text-2);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.kpis{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap}
-.kpi b{display:block;font-size:16px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.summary p{margin:0;color:var(--text-2);font-size:12.5px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.kpis{display:flex;gap:16px;margin-top:8px;flex-wrap:wrap}
+.kpi b{display:block;font-size:15px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 .kpi span{font-size:11px;color:var(--text-3)}
 .controls{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;padding:6px}
 .seg{position:relative;display:inline-flex;padding:3px;border-radius:9px;background:var(--surface-2);border:1px solid var(--border)}
@@ -209,7 +214,7 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .zoom button svg{width:15px;height:15px}
 .zoom hr{border:0;height:1px;background:var(--border);margin:2px 4px}
 .legend{position:absolute;left:60px;right:14px;bottom:14px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;pointer-events:none;z-index:4}
-.legend span{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2);padding:4px 9px;border-radius:99px;background:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid var(--border)}
+.legend span{pointer-events:auto;cursor:default;transition:border-color .15s;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-2);padding:4px 9px;border-radius:99px;background:var(--glass);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);border:1px solid var(--border)}
 .legend i{width:8px;height:8px;border-radius:50%;background:var(--c)}
 
 /* ===== Detail-Panel ===== */
@@ -397,26 +402,26 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
     <div class="actions">
       <form class="cmd" id="loadForm" autocomplete="off">
         <svg><use href="#i-search"/></svg>
-        <input id="repoInput" placeholder="GitHub-Repo analysieren, z. B. vercel/next.js" spellcheck="false" aria-label="GitHub-Repository">
+        <input id="repoInput" placeholder="Analyze a GitHub repo, e.g. vercel/next.js" spellcheck="false" aria-label="GitHub repository">
         <kbd id="kbdHint">/</kbd>
       </form>
-      <button class="btn primary" type="submit" form="loadForm" id="loadBtn">Analysieren</button>
+      <button class="btn primary" type="submit" form="loadForm" id="loadBtn">Analyze</button>
       <div class="anchor">
-        <button class="btn icon" type="button" id="tokenBtn" aria-label="GitHub-Token für private Repos" aria-expanded="false"><svg><use href="#i-key"/></svg></button>
+        <button class="btn icon" type="button" id="tokenBtn" aria-label="GitHub token for private repos" aria-expanded="false"><svg><use href="#i-key"/></svg></button>
         <div class="pop" id="tokenPop" data-open="false">
-          <label for="tokenInput">GitHub-Token für private Repos</label>
+          <label for="tokenInput">GitHub token for private repos</label>
           <input id="tokenInput" type="password" placeholder="ghp_…" autocomplete="off">
-          <p>Bleibt nur im Arbeitsspeicher dieses Tabs.</p>
+          <p>Kept in this tab’s memory only.</p>
         </div>
       </div>
-      <label class="btn" for="dirInput" title="Lokalen Projektordner analysieren – Dateien verlassen den Browser nicht"><svg><use href="#i-folder"/></svg>Ordner</label>
+      <label class="btn" for="dirInput" title="Analyze a local project folder – files never leave your browser"><svg><use href="#i-folder"/></svg>Folder</label>
       <input type="file" id="dirInput" webkitdirectory directory multiple hidden>
-      <button class="btn" type="button" id="sampleBtn">Beispiel</button>
+      <button class="btn" type="button" id="sampleBtn">Example</button>
     </div>
-    <nav class="tabs" role="tablist" aria-label="Ansicht">
-      <button class="tab" role="tab" aria-selected="true" data-tab="arch" id="tab-arch"><svg><use href="#i-arch"/></svg>Architektur <span class="count" id="bArch"></span></button>
+    <nav class="tabs" role="tablist" aria-label="View">
+      <button class="tab" role="tab" aria-selected="true" data-tab="arch" id="tab-arch"><svg><use href="#i-arch"/></svg>Architecture <span class="count" id="bArch"></span></button>
       <button class="tab" role="tab" aria-selected="false" data-tab="tree" id="tab-tree"><svg><use href="#i-tree"/></svg>Treemap</button>
-      <button class="tab" role="tab" aria-selected="false" data-tab="files" id="tab-files"><svg><use href="#i-files"/></svg>Dateien <span class="count" id="bFiles"></span></button>
+      <button class="tab" role="tab" aria-selected="false" data-tab="files" id="tab-files"><svg><use href="#i-files"/></svg>Files <span class="count" id="bFiles"></span></button>
       <button class="tab" role="tab" aria-selected="false" data-tab="health" id="tab-health"><svg><use href="#i-pulse"/></svg>Screening <span class="count" id="bScore"></span></button>
       <span class="tab-ind" id="tabInd"></span>
     </nav>
@@ -431,7 +436,7 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
       <div class="hud">
         <div class="leftcol">
           <div class="summary floating" id="summary">
-            <div class="eyebrow" id="srcLabel">Quelle</div>
+            <div class="eyebrow" id="srcLabel">Source</div>
             <h1 id="repoTitle">–</h1>
             <p id="repoDesc"></p>
             <div class="kpis" id="kpis"></div>
@@ -439,30 +444,31 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
           <div class="overview floating" id="overview" hidden></div>
         </div>
         <div class="controls floating">
-          <div class="seg" role="group" aria-label="Richtung" id="segDir"><span class="knob"></span>
-            <button type="button" id="dirTD" aria-pressed="true" aria-label="Von oben nach unten"><svg><use href="#i-down"/></svg></button>
-            <button type="button" id="dirLR" aria-pressed="false" aria-label="Von links nach rechts"><svg><use href="#i-right"/></svg></button>
+          <div class="seg" role="group" aria-label="Direction" id="segDir"><span class="knob"></span>
+            <button type="button" id="dirAuto" aria-pressed="true" aria-label="Automatic direction">Auto <span>↓</span></button>
+            <button type="button" id="dirTD" aria-pressed="false" aria-label="Top to bottom"><svg><use href="#i-down"/></svg></button>
+            <button type="button" id="dirLR" aria-pressed="false" aria-label="Left to right"><svg><use href="#i-right"/></svg></button>
           </div>
           <button class="btn sm" type="button" id="sideBtn" aria-pressed="false" hidden><svg><use href="#k-tooling"/></svg><span>Tooling &amp; Tests</span></button>
-          <button class="btn sm icon" type="button" id="copyMm" title="Mermaid-Quelltext kopieren" aria-label="Mermaid-Quelltext kopieren"><svg><use href="#i-copy"/></svg></button>
+          <button class="btn sm icon" type="button" id="copyMm" title="Copy Mermaid source" aria-label="Copy Mermaid source"><svg><use href="#i-copy"/></svg></button>
         </div>
       </div>
       <div class="zoom floating" role="group" aria-label="Zoom">
-        <button type="button" id="zIn" aria-label="Vergrößern"><svg><use href="#i-plus"/></svg></button>
-        <button type="button" id="zOut" aria-label="Verkleinern"><svg><use href="#i-minus"/></svg></button>
+        <button type="button" id="zIn" aria-label="Zoom in (+)" title="Zoom in (+)"><svg><use href="#i-plus"/></svg></button>
+        <button type="button" id="zOut" aria-label="Zoom out (−)" title="Zoom out (−)"><svg><use href="#i-minus"/></svg></button>
         <hr>
-        <button type="button" id="zFit" aria-label="Einpassen"><svg><use href="#i-fit"/></svg></button>
+        <button type="button" id="zFit" aria-label="Fit to screen (F)" title="Fit to screen (F)"><svg><use href="#i-fit"/></svg></button>
       </div>
       <div class="legend" id="legend"></div>
     </section>
 
     <section class="view" data-view="tree" hidden>
-      <div class="subbar"><div class="crumb" id="tmCrumbs"></div><span class="sp"></span><span class="hint">Fläche = Dateigröße · Farbe = Sprache · Klick auf Ordner zoomt hinein</span></div>
+      <div class="subbar"><div class="crumb" id="tmCrumbs"></div><span class="sp"></span><span class="hint">Area = file size · color = language · click a folder to zoom in</span></div>
       <div class="tm" id="tm"></div>
     </section>
 
     <section class="view" data-view="files" hidden>
-      <div class="subbar"><label class="search" for="fileSearch"><svg><use href="#i-search"/></svg><input id="fileSearch" placeholder="Pfad filtern, z. B. api/ oder .test." spellcheck="false"></label><span class="sp"></span><span class="hint" id="fileCount"></span></div>
+      <div class="subbar"><label class="search" for="fileSearch"><svg><use href="#i-search"/></svg><input id="fileSearch" placeholder="Filter paths, e.g. api/ or .test." spellcheck="false"></label><span class="sp"></span><span class="hint" id="fileCount"></span></div>
       <div class="files" id="files"></div>
     </section>
 
@@ -470,13 +476,13 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
       <div class="health"><div class="grid" id="healthGrid"></div></div>
     </section>
 
-    <aside class="panel" id="panel" data-state="closed" aria-label="Komponentendetails">
+    <aside class="panel" id="panel" data-state="closed" aria-label="Component details">
       <div class="ph" id="panelHead"></div>
       <div class="pb" id="panelBody"></div>
     </aside>
 
     <div class="log" id="log" data-open="false" role="status" aria-live="polite">
-      <div class="lh"><span class="st" id="logSt"></span><span id="logTitle">Analyse</span><span class="sp"></span><button class="close" type="button" id="logClose" aria-label="Protokoll schließen"><svg><use href="#i-x"/></svg></button></div>
+      <div class="lh"><span class="st" id="logSt"></span><span id="logTitle">Analysis</span><span class="sp"></span><button class="close" type="button" id="logClose" aria-label="Close log"><svg><use href="#i-x"/></svg></button></div>
       <div class="lb" id="logBody"></div>
     </div>
   </main>

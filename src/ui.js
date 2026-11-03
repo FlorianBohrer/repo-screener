@@ -1,5 +1,5 @@
 /* ============ Zustand ============ */
-let DATA = null, A = null, MODE = "heur", DIR = "TD", AI = null, SELECTED = null, TAB = "arch";
+let DATA = null, A = null, MODE = "heur", DIR = "TD", DIR_MODE = "auto", AI = null, SELECTED = null, TAB = "arch";
 /* Optionale Erweiterungen (z. B. ein zweiter Diagramm-Modus) registrieren sich hier */
 const EXT = { onShow: [], onLayout: [] };
 const REDUCE = matchMedia("(prefers-reduced-motion: reduce)");
@@ -62,17 +62,17 @@ const knobDir = segKnob($("#segDir"));
 let knobMode = () => {};
 
 function renderHeader() {
-  const src = DATA.source === "sample" ? "Beispiel · öffentliches GitHub-Repository" : DATA.source === "local" ? "Lokaler Ordner" : "GitHub";
+  const src = DATA.source === "sample" ? "Example · public GitHub repository" : DATA.source === "local" ? "Local folder" : "GitHub";
   $("#repoName").textContent = DATA.repo;
   $("#envTxt").textContent = DATA.branch || "lokal";
   $("#srcLabel").textContent = src;
   const h = $("#repoTitle"); h.textContent = "";
   h.append(DATA.source === "local" ? DATA.repo : el("a", { href: "https://github.com/" + DATA.repo, target: "_blank", rel: "noopener" }, DATA.repo));
-  if (DATA.source === "sample") h.append(el("span", { class: "tag-example" }, "Beispiel"));
+  if (DATA.source === "sample") h.append(el("span", { class: "tag-example" }, "Example"));
   $("#repoDesc").textContent = DATA.description || firstSentence(DATA.readme) || "";
   const k = $("#kpis"); k.textContent = "";
   const kpi = (v, l, cls) => el("div", { class: "kpi " + (cls || "") }, el("b", {}, v), el("span", {}, l));
-  k.append(kpi(fmtInt(A.files.length), "Dateien"), kpi(fmtInt(A.compCount), "Bausteine"), kpi(fmtInt(A.resolved), "Importe", "opt"), kpi(fmtBytes(A.total), "Größe", "opt"), kpi(A.score, "Score"));
+  k.append(kpi(fmtInt(A.files.length), "Files"), kpi(fmtInt(A.compCount), "Components"), kpi(fmtInt(A.resolved), "Imports", "opt"), kpi(fmtBytes(A.total), "Size", "opt"), kpi(A.score, "Score"));
   $("#bArch").textContent = A.compCount; $("#bFiles").textContent = fmtInt(A.files.length); $("#bScore").textContent = A.score;
 }
 
@@ -83,16 +83,43 @@ const USE_CLUSTERS = false; /* dagre-Cluster ziehen den Fluss auseinander; Rahme
 const dim = n => n.kind === "user" ? { w: 118, h: 40 } : n._chip ? { w: CHIP_W, h: CHIP_H } : { w: CARD_W, h: CARD_H };
 const view = { s: spring(1, { eps: 0.0005 }), x: spring(0, { eps: 0.2 }), y: spring(0, { eps: 0.2 }) };
 let viewRaf = 0;
-const applyView = () => { if (viewRaf) return; viewRaf = requestAnimationFrame(() => { viewRaf = 0; $("#canvas").style.transform = `translate(${view.x.value}px,${view.y.value}px) scale(${view.s.value})`; }); };
+const applyView = () => { if (viewRaf) return; viewRaf = requestAnimationFrame(() => { viewRaf = 0; const c = $("#canvas"); c.style.transform = `translate(${view.x.value}px,${view.y.value}px) scale(${view.s.value})`; c.classList.toggle("far", view.s.value < 0.62); }); };
 view.s.onUpdate = view.x.onUpdate = view.y.onUpdate = applyView;
 let graphSize = { w: 0, h: 0 };
 
 function renderLegend(ast) {
   const lg = $("#legend"); lg.textContent = "";
   const used = new Set(ast.nodes.filter(n => !n._chip).map(n => n.cat));
-  for (const c of CAT_ORDER) if (used.has(c)) lg.append(el("span", { style: `--c:var(--c-${c})` }, el("i"), CATS[c].label));
+  for (const c of CAT_ORDER) if (used.has(c)) {
+    const chip = el("span", { style: `--c:var(--c-${c})` }, el("i"), CATS[c].label);
+    chip.addEventListener("mouseenter", () => { if (SELECTED) return; $("#canvas").classList.add("preview"); CARD_ELS.forEach((card, id) => card.classList.toggle("dim", card.style.getPropertyValue("--c") !== `var(--c-${c})`)); EDGE_ELS.forEach(x => { x.base.classList.add("dim"); x.label?.classList.add("dim"); }); GROUP_ELS.forEach(g => g.el.classList.add("dim")); });
+    chip.addEventListener("mouseleave", () => { if (!SELECTED) highlight(null); });
+    lg.append(chip);
+  }
 }
 function catIcon(cat) { return svgUse("k-" + cat); }
+
+/* Richtung automatisch: beide Layouts probeweise berechnen und das nehmen, das auf diesem Bildschirm größer (lesbarer) passt */
+function pickDir(linked, edges) {
+  if (!linked.length || typeof dagre === "undefined") return "TD";
+  const st = $("#stage"), sw = st.clientWidth || 1200, sh = st.clientHeight || 700;
+  const size = td => {
+    const g = new dagre.graphlib.Graph(); g.setGraph({ rankdir: td ? "TB" : "LR", nodesep: 34, edgesep: 18, ranksep: td ? 46 : 64, marginx: 50, marginy: 50 }); g.setDefaultEdgeLabel(() => ({}));
+    linked.forEach(n => { const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); });
+    edges.forEach(e => { if (g.hasNode(e.from) && g.hasNode(e.to)) g.setEdge(e.from, e.to, e.label ? { width: Math.ceil(e.label.length * 6.1 + 16), height: 18, labelpos: "c" } : {}); });
+    dagre.layout(g); return { w: g.graph().width, h: g.graph().height };
+  };
+  const fit = ({ w, h }) => Math.min((sw - 60) / w, (sh - 150) / h);
+  const td = size(true), lr = size(false);
+  return fit(lr) > fit(td) * 1.12 ? "LR" : "TD";
+}
+function updateDirUi() {
+  const auto = $("#dirAuto"); if (!auto) return;
+  [["dirAuto", "auto"], ["dirTD", "TD"], ["dirLR", "LR"]].forEach(([id, m]) => $("#" + id).setAttribute("aria-pressed", DIR_MODE === m));
+  auto.lastChild.textContent = DIR === "TD" ? "↓" : "→";
+  auto.title = `Automatic: ${DIR === "TD" ? "top to bottom" : "left to right"}`;
+  requestAnimationFrame(() => knobDir());
+}
 
 /* Orthogonaler Pfad mit runden Ecken durch die Stützpunkte */
 function roundPath(v, r = 9) {
@@ -118,21 +145,23 @@ function renderCanvas({ animate = true } = {}) {
   const sideBtn = $("#sideBtn");
   if (sideBtn) { const cnt = base.nodes.filter(n => n.side).length; sideBtn.hidden = MODE !== "heur" || !cnt; sideBtn.setAttribute("aria-pressed", SHOW_SIDE); sideBtn.lastChild.textContent = `Tooling & Tests (${cnt})`; }
   const ov = $("#overview");
-  if (MODE === "ai" && AI) { ov.hidden = false; ov.textContent = ""; ov.append(el("div", { class: "who" }, AI.who || "Überblick"), el("p", {}, AI.overview || "")); }
-  else if (A.analysed === 0) { ov.hidden = false; ov.textContent = ""; ov.append(el("p", { class: "muted" }, "Für dieses Repository wurde kein Quellcode gelesen. Das Diagramm zeigt daher nur die Ordnerstruktur ohne Verbindungen.")); }
+  if (MODE === "ai" && AI) { ov.hidden = false; ov.textContent = ""; ov.append(el("div", { class: "who" }, AI.who || "Overview"), el("p", {}, AI.overview || "")); }
+  else if (A.analysed === 0) { ov.hidden = false; ov.textContent = ""; ov.append(el("p", { class: "muted" }, "No source code was read for this repository, so the diagram only shows the folder structure without connections.")); }
   else ov.hidden = true;
   const nodesEl = $("#nodes"), svg = $("#edges"), empty = $("#stageEmpty");
   nodesEl.textContent = ""; svg.textContent = "";
-  if (typeof dagre === "undefined") { empty.hidden = false; empty.textContent = "Die Layout-Bibliothek konnte nicht geladen werden. Prüfe die Verbindung und lade die Seite neu."; return; }
+  if (typeof dagre === "undefined") { empty.hidden = false; empty.textContent = "The layout library could not be loaded. Check your connection and reload the page."; return; }
   empty.hidden = true;
 
-  const TD = DIR === "TD";
   const linkedIds = new Set(ast.edges.flatMap(e => [e.from, e.to]));
   const linked = ast.nodes.filter(n => linkedIds.has(n.id)), loose = ast.nodes.filter(n => !linkedIds.has(n.id));
   loose.forEach(n => { n._chip = true; });
   renderLegend(ast);
   const byId = new Map(ast.nodes.map(n => [n.id, n]));
   const extIds = new Set(linked.filter(n => n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user")).map(n => n.id));
+  if (DIR_MODE === "auto") DIR = pickDir(linked, ast.edges);
+  const TD = DIR === "TD";
+  updateDirUi();
 
   /* Fachbereichs-Gruppen (≥ 2 Bausteine) werden als Cluster gelayoutet; Schicht-Gruppen nicht */
   const groupOf = n => n.group || CATS[n.cat].label;
@@ -165,7 +194,7 @@ function renderCanvas({ animate = true } = {}) {
       const levelOf = id => g0.hasNode(id) ? levels.indexOf(key(id)) : 0;
       g = layout(from => levels.length - levelOf(from));
     } else g = layout(null);
-  } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "Das Layout ließ sich nicht berechnen."; return; }
+  } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "The layout could not be computed."; return; }
   let W = linked.length ? Math.ceil(g.graph().width) : 0, H = linked.length ? Math.ceil(g.graph().height) : 0;
   const pos = new Map(linked.map(n => [n.id, g.node(n.id)]));
 
@@ -194,7 +223,7 @@ function renderCanvas({ animate = true } = {}) {
     frames.push(gr); nodesEl.append(gr.el);
   });
   if (looseRect) {
-    const lab = hideSide && hidden.size ? `Weitere Bausteine · Tooling, Tests, Doku und ohne Importe` : linked.length ? "Ohne Import-Verbindungen" : "Bausteine";
+    const lab = hideSide && hidden.size ? `More components · tooling, tests, docs and unconnected` : linked.length ? "No import connections" : "Components";
     const fr = { id: "grpLoose", label: lab, members: loose.map(n => n.id) };
     fr.el = el("div", { class: "grp loose", style: `left:${looseRect.x0}px;top:${looseRect.y0}px;width:${looseRect.x1 - looseRect.x0}px;height:${looseRect.y1 - looseRect.y0}px` }, el("span", {}, lab));
     frames.push(fr); nodesEl.append(fr.el);
@@ -261,13 +290,18 @@ function renderCanvas({ animate = true } = {}) {
     const basePath = document.createElementNS(NS, "path"); basePath.setAttribute("d", d); basePath.setAttribute("class", "edge" + (extIds.has(e.to) || e.from === "u_user" ? " soft" : "")); basePath.setAttribute("stroke-width", sw); basePath.setAttribute("marker-end", "url(#arr)");
     const flow = document.createElementNS(NS, "path"); flow.setAttribute("d", d); flow.setAttribute("class", "flow"); flow.setAttribute("stroke-width", Math.max(1.4, sw));
     if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s";
-    svg.append(basePath, flow);
-    let label = null;
+    const hit = document.createElementNS(NS, "path"); hit.setAttribute("d", d); hit.setAttribute("class", "hit"); hit.dataset.from = e.from;
+    const tipText = `${byId.get(e.from)?.label} → ${byId.get(e.to)?.label}\n${e.label || ""}${e.w ? ` · ${e.w} import${e.w === 1 ? "" : "s"}` : ""}`;
+    hit.addEventListener("mouseenter", () => { basePath.classList.add("hover"); if (!SELECTED) { label?.classList.add("hot"); } });
+    hit.addEventListener("mousemove", ev => { const t = $("#tip"); t.hidden = false; t.textContent = tipText; t.style.left = Math.min(ev.clientX + 14, innerWidth - 370) + "px"; t.style.top = (ev.clientY + 16) + "px"; });
+    hit.addEventListener("mouseleave", () => { basePath.classList.remove("hover"); $("#tip").hidden = true; if (!SELECTED) label?.classList.remove("hot"); });
+    svg.append(basePath, flow, hit);
+    var label = null;
     if (e.label) {
       /* Beschriftung auf dem längsten Segment in Flussrichtung */
       let best = null; for (let k = 0; k < v.length - 1; k++) { const L = Math.abs(v[k + 1][P] - v[k][P]); if (Math.abs(v[k + 1][S] - v[k][S]) < 1 && (!best || L > best.L)) best = { L, x: (v[k].x + v[k + 1].x) / 2, y: (v[k].y + v[k + 1].y) / 2 }; }
       const lp = best || { x: ed.x, y: ed.y };
-      label = el("div", { class: "elabel", style: `left:${lp.x}px;top:${lp.y}px`, title: e.w ? `${e.w} Importe` : "" }, e.label); nodesEl.append(label);
+      label = el("div", { class: "elabel", style: `left:${lp.x}px;top:${lp.y}px`, title: e.w ? `${e.w} import${e.w === 1 ? "" : "s"}` : "" }, e.label); nodesEl.append(label);
     }
     EDGE_ELS.push({ e, base: basePath, flow, label });
     if (animate && !REDUCE.matches) {
@@ -290,17 +324,19 @@ function renderCanvas({ animate = true } = {}) {
     } else if (n._chip) {
       card = el("div", { class: "card chip", style: `--c:var(--c-${n.cat});${at}`, title: n.path || n.label }, el("span", { class: "ico" }, catIcon(n.cat)), el("span", { class: "nm" }, n.label), MODE === "heur" && n.count ? el("span", { class: "cnt" }, fmtInt(n.count)) : null);
     } else {
-      const sub = MODE === "ai" ? (n.path ? basename(n.path) || n.path : "externer Dienst") : isExt ? `${n.main || "Dienst"} · extern` : (n.main || n.path || "/");
+      const sub = MODE === "ai" ? (n.path ? basename(n.path) || n.path : "external service") : isExt ? `${n.main || "Service"} · external` : (n.main || n.path || "/");
       const cnt = MODE === "heur" && !isExt && !n.file ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
-      card = el("div", { class: "card" + (isExt ? " ext" : "") + (n.file ? " file" : ""), style: `--c:var(--c-${n.cat});${at}`, title: n.file && n.parentLabel ? `Datei aus ${n.parentLabel}` : "" },
+      card = el("div", { class: "card" + (isExt ? " ext" : "") + (n.file ? " file" : ""), style: `--c:var(--c-${n.cat});${at}`, title: n.file && n.parentLabel ? `File in ${n.parentLabel}` : "" },
         el("span", { class: "ico" }, n.file ? svgUse("i-file") : catIcon(n.cat)),
         el("div", { class: "tx" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub)),
-        cnt ? el("span", { class: "cnt", title: `${cnt} Dateien` }, fmtInt(cnt)) : null);
+        cnt ? el("span", { class: "cnt", title: `${cnt} files` }, fmtInt(cnt)) : null);
     }
     Object.entries({ tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id }).forEach(([k, v]) => card.setAttribute(k, v));
     card.addEventListener("click", ev => { ev.stopPropagation(); select(n.id); centerOn(n.id); });
     card.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id); } });
     card.addEventListener("pointerdown", ev => ev.stopPropagation());
+    card.addEventListener("mouseenter", () => { if (!SELECTED) highlight(n.id, true); });
+    card.addEventListener("mouseleave", () => { if (!SELECTED) highlight(null); });
     nodesEl.append(card); CARD_ELS.set(n.id, card);
     if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(8px) scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 480, delay: Math.min(480, i * 24), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
   });
@@ -313,7 +349,8 @@ function renderCanvas({ animate = true } = {}) {
 let EDGE_ELS = [], CARD_ELS = new Map(), GROUP_ELS = [];
 const heurNode = id => A.nodes.find(n => n.id === id);
 
-function highlight(id) {
+function highlight(id, preview = false) {
+  $("#canvas").classList.toggle("preview", !!id && preview);
   const ast = currentAst();
   const nb = new Set(id ? [id] : []);
   if (id) ast.edges.forEach(e => { if (e.from === id) nb.add(e.to); if (e.to === id) nb.add(e.from); });
@@ -357,7 +394,7 @@ function zoomBy(f, cx, cy, animated = true) {
   st.addEventListener("pointerdown", e => {
     if (e.button !== 0) return;
     view.x.stop(); view.y.stop(); view.s.stop(); /* greift die Fläche mitten im Gleiten */
-    drag = { x: e.clientX, y: e.clientY, vx: view.x.value, vy: view.y.value, moved: false, hist: [{ x: e.clientX, y: e.clientY, t: e.timeStamp }] };
+    drag = { target: e.target, x: e.clientX, y: e.clientY, vx: view.x.value, vy: view.y.value, moved: false, hist: [{ x: e.clientX, y: e.clientY, t: e.timeStamp }] };
     st.setPointerCapture(e.pointerId);
   });
   st.addEventListener("pointermove", e => {
@@ -371,7 +408,11 @@ function zoomBy(f, cx, cy, animated = true) {
   st.addEventListener("pointerup", e => {
     if (!drag) return; st.classList.remove("dragging");
     const d = drag; drag = null;
-    if (!d.moved) { if (e.target.closest(".stage") && !e.target.closest(".card")) select(null); return; }
+    if (!d.moved) {
+      const hit = d.target?.closest?.(".hit");
+      if (hit) { $("#tip").hidden = true; select(hit.dataset.from); centerOn(hit.dataset.from); return; }
+      if (!d.target?.closest?.(".card")) select(null); return;
+    }
     const a = d.hist[0], b = d.hist[d.hist.length - 1], dt = (b.t - a.t) / 1000;
     if (dt <= 0 || e.timeStamp - b.t > 90) return;
     const vx = (b.x - a.x) / dt, vy = (b.y - a.y) / dt;
@@ -426,6 +467,13 @@ addEventListener("keydown", e => {
   if (e.key === "Escape") { if ($("#tokenPop").dataset.open === "true") toggleToken(false); else if (SELECTED) select(null); }
   if (e.key === "/" && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); $("#repoInput").focus(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#repoInput").focus(); $("#repoInput").select(); }
+  const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");
+  if (TAB === "arch" && !typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const st = $("#stage");
+    if (e.key === "f" || e.key === "F") { e.preventDefault(); fitView(true); }
+    else if (e.key === "+" || e.key === "=") { e.preventDefault(); zoomBy(1.25, st.clientWidth / 2, st.clientHeight / 2); }
+    else if (e.key === "-" || e.key === "_") { e.preventDefault(); zoomBy(0.8, st.clientWidth / 2, st.clientHeight / 2); }
+  }
 });
 
 function select(id) {
@@ -437,28 +485,28 @@ function select(id) {
   panelEl.style.setProperty("--c", `var(--c-${an.cat})`);
   head.append(el("span", { class: "ico" }, catIcon(an.cat)),
     el("div", { class: "t" }, el("h2", {}, an.label), el("span", { class: "pill" }, el("i"), CATS[an.cat].label)),
-    el("button", { class: "close", type: "button", "aria-label": "Schließen", onclick: () => select(null) }, svgUse("i-x")));
+    el("button", { class: "close", type: "button", "aria-label": "Close", onclick: () => select(null) }, svgUse("i-x")));
 
   const files = MODE === "heur" ? (heurNode(id)?.files || []) : (an.path ? A.files.filter(f => f.path === an.path || f.path.startsWith(an.path.replace(/\/$/, "") + "/")) : []);
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
-  if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Teil von"), el("div", { class: "rows" },
-    el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Ordner"), el("span", { class: "ar" }, "→")))));
-  if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "Externer Dienst"}, erkannt über Paket-Importe. Die Pfeile zeigen, welche Bausteine den Dienst direkt einbinden.`));
-  if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Einstiegspunkt der Oberfläche. Der Pfeil zeigt auf den Baustein mit der Einstiegsdatei (z. B. main.ts oder App.tsx)."));
+  if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Part of"), el("div", { class: "rows" },
+    el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Folder"), el("span", { class: "ar" }, "→")))));
+  if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "External service"}, detected from package imports. The arrows show which components use the service directly.`));
+  if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Entry point of the UI. The arrow points to the component that holds the entry file (e.g. main.ts or App.tsx)."));
   /* Kennzahlen */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
     body.append(el("div", { class: "tiles" },
-      el("div", { class: "tile" }, el("b", {}, fmtInt(files.length)), el("span", {}, "Dateien")),
-      el("div", { class: "tile" }, el("b", {}, fmtBytes(bytes)), el("span", {}, "Größe")),
+      el("div", { class: "tile" }, el("b", {}, fmtInt(files.length)), el("span", {}, "Files")),
+      el("div", { class: "tile" }, el("b", {}, fmtBytes(bytes)), el("span", {}, "Size")),
       el("div", { class: "tile" }, el("b", {}, fmtInt(files.filter(f => isTest(f.path)).length)), el("span", {}, "Tests"))));
   }
   /* Pfad */
   const isDir = an.path ? !A.fileSet.has(an.path) : false;
   const u = an.path ? repoUrl(an.path, isDir) : null;
-  if (an.kind === "comp" || MODE === "ai") body.append(el("div", { class: "sec" }, el("h4", {}, "Pfad"),
+  if (an.kind === "comp" || MODE === "ai") body.append(el("div", { class: "sec" }, el("h4", {}, "Path"),
     el("div", { class: "pathbox" }, svgUse(isDir || !an.path ? "i-folder" : "i-file"),
-      u ? el("a", { href: u, target: "_blank", rel: "noopener", style: "flex:1" }, an.path) : el("span", { style: "flex:1" }, an.path || (MODE === "ai" ? "Externer Dienst – kein Pfad im Repo" : "/ (Wurzel)")),
+      u ? el("a", { href: u, target: "_blank", rel: "noopener", style: "flex:1" }, an.path) : el("span", { style: "flex:1" }, an.path || (MODE === "ai" ? "External service – no path in the repo" : "/ (root)")),
       u ? svgUse("i-ext") : null)));
   /* Sprachen */
   if (files.length) {
@@ -466,8 +514,8 @@ function select(id) {
     const lang = new Map(); files.forEach(f => { const [n, c] = langOf(f.path); const o = lang.get(n) || { n, c, b: 0 }; o.b += f.size; lang.set(n, o); });
     const ls = [...lang.values()].sort((a, b) => b.b - a.b);
     const bar = el("div", { class: "minibar" }, ...ls.map(l => el("i", { style: `width:${(l.b / bytes * 100).toFixed(2)}%;background:${l.c}` })));
-    body.append(el("div", { class: "sec" }, el("h4", {}, "Sprachen"), bar,
-      el("div", { class: "rows" }, ...ls.slice(0, 4).map(l => el("div", { class: "r" }, el("span", { class: "d", style: `background:${l.c}` }), el("span", { class: "n" }, l.n), el("span", { class: "v" }, (l.b / bytes * 100).toFixed(0) + " %"))))));
+    body.append(el("div", { class: "sec" }, el("h4", {}, "Languages"), bar,
+      el("div", { class: "rows" }, ...ls.slice(0, 4).map(l => el("div", { class: "r" }, el("span", { class: "d", style: `background:${l.c}` }), el("span", { class: "n" }, l.n), el("span", { class: "v" }, (l.b / bytes * 100).toFixed(0) + "%"))))));
   }
   /* Verbindungen */
   const outE = ast.edges.filter(e => e.from === id), inE = ast.edges.filter(e => e.to === id);
@@ -479,12 +527,12 @@ function select(id) {
         el("span", { class: "d", style: `background:var(--c-${o.cat})` }), el("span", { class: "n" }, o.label), el("span", { class: "v" }, (e.label || "") + (e.w && MODE === "heur" ? ` · ${e.w}` : "")), el("span", { class: "ar" }, "→"));
     })));
   };
-  const c1 = conn(MODE === "heur" ? "Nutzt" : "Verbindet zu", outE, "to"), c2 = conn(MODE === "heur" ? "Wird genutzt von" : "Verbunden von", inE, "from");
+  const c1 = conn(MODE === "heur" ? "Uses" : "Connects to", outE, "to"), c2 = conn(MODE === "heur" ? "Used by" : "Connected from", inE, "from");
   if (c1) body.append(c1); if (c2) body.append(c2);
-  if (!c1 && !c2) body.append(el("p", { class: "empty-note" }, MODE === "heur" ? "Keine erkannten Importe zu anderen Komponenten." : "Keine Verbindungen."));
+  if (!c1 && !c2) body.append(el("p", { class: "empty-note" }, MODE === "heur" ? "No detected imports to other components." : "No connections."));
   /* Größte Dateien */
   if (files.length) {
-    body.append(el("div", { class: "sec" }, el("h4", {}, "Größte Dateien"), el("div", { class: "rows" }, ...[...files].sort((a, b) => b.size - a.size).slice(0, 7).map(f => {
+    body.append(el("div", { class: "sec" }, el("h4", {}, "Largest files"), el("div", { class: "rows" }, ...[...files].sort((a, b) => b.size - a.size).slice(0, 7).map(f => {
       const fu = repoUrl(f.path, false); const short = an.path && f.path.startsWith(an.path + "/") ? f.path.slice(an.path.length + 1) : f.path;
       return el("div", { class: "r f" }, el("span", { class: "d", style: `background:${langOf(f.path)[1]}` }), fu ? el("a", { class: "n", href: fu, target: "_blank", rel: "noopener", title: f.path }, short) : el("span", { class: "n", title: f.path }, short), el("span", { class: "v" }, fmtBytes(f.size)));
     }))));
@@ -540,7 +588,7 @@ function renderTreemap() {
     const color = isDir ? null : d.data.aggregate ? [...d.data.langs.entries()].sort((a, b) => b[1] - a[1])[0][0] : langOf(d.data.path)[1];
     const t = el("div", { class: "t " + (isDir ? "dir" : "leaf"), style: `left:${d.x0}px;top:${d.y0}px;width:${w}px;height:${hh}px;${color ? `background:${color};color:${textOn(color)}` : ""}` });
     if (w > 30 && hh > 14) t.textContent = d.data.name;
-    const info = `${d.data.aggregate ? d.data.path + "/… (tiefere Ebenen)" : d.data.path}\n${fmtBytes(d.value)}${isDir ? " · " + d.leaves().length + " Einträge" : ""}`;
+    const info = `${d.data.aggregate ? d.data.path + "/… (deeper levels)" : d.data.path}\n${fmtBytes(d.value)}${isDir ? " · " + d.leaves().length + " entries" : ""}`;
     t.addEventListener("mousemove", e => { tip.hidden = false; tip.textContent = info; tip.style.left = Math.min(e.clientX + 14, innerWidth - 370) + "px"; tip.style.top = (e.clientY + 16) + "px"; e.stopPropagation(); });
     t.addEventListener("mouseleave", () => { tip.hidden = true; });
     if (isDir || d.data.aggregate) t.addEventListener("click", e => { e.stopPropagation(); tip.hidden = true; zoomTreemap(d.data.path, d); });
@@ -570,7 +618,7 @@ function renderFiles() {
   const box = $("#files"); box.textContent = "";
   if (!A) return;
   const match = A.files.filter(f => !q || f.path.toLowerCase().includes(q));
-  $("#fileCount").textContent = `${fmtInt(match.length)} von ${fmtInt(A.files.length)} Dateien`;
+  $("#fileCount").textContent = `${fmtInt(match.length)} of ${fmtInt(A.files.length)} files`;
   const tree = { c: new Map(), size: 0, n: 0 };
   for (const f of match) { let cur = tree; const segs = f.path.split("/"); cur.size += f.size; cur.n++;
     segs.forEach((s, i) => { if (i === segs.length - 1) { cur.c.set(s, { f }); return; } if (!cur.c.has(s)) cur.c.set(s, { c: new Map(), size: 0, n: 0 }); cur = cur.c.get(s); cur.size += f.size; cur.n++; }); }
@@ -593,7 +641,7 @@ function renderFiles() {
     }
   };
   walk(tree, "", 0);
-  if (rows > LIMIT) box.append(el("div", { class: "r muted" }, "Liste gekürzt – Filter verwenden."));
+  if (rows > LIMIT) box.append(el("div", { class: "r muted" }, "List truncated – use the filter."));
 }
 $("#fileSearch").addEventListener("input", renderFiles);
 
@@ -609,41 +657,41 @@ function renderHealth() {
   if (!REDUCE.matches) fg.animate([{ strokeDashoffset: C }, { strokeDashoffset: C * (1 - A.score / 100) }], { duration: 1100, easing: "cubic-bezier(.16,1,.3,1)" });
   const cnt = (n, l, v) => n ? el("span", { style: `color:var(--${v});background:color-mix(in srgb,var(--${v}) 14%,transparent)` }, `${n} ${l}`) : null;
   const scoreNum = el("span", {}, "0");
-  g.append(el("div", { class: "box span5" }, el("h3", {}, "Projektgesundheit", el("small", {}, "10 Prüfungen")),
+  g.append(el("div", { class: "box span5" }, el("h3", {}, "Project health", el("small", {}, "10 checks")),
     el("div", { class: "scorebox" }, ringWrap.firstElementChild,
       el("div", {}, el("div", { class: "big" }, scoreNum, el("small", {}, " / 100")),
-        el("p", {}, bad ? "Es gibt kritische Punkte, die du dir ansehen solltest." : warn ? "Solide Basis mit einzelnen Hinweisen." : "Alle Prüfungen bestanden."),
-        el("div", { class: "counts" }, cnt(ok, "bestanden", "ok"), cnt(warn, "Hinweis" + (warn > 1 ? "e" : ""), "warn"), cnt(bad, "kritisch", "bad"))))));
+        el("p", {}, bad ? "There are critical issues worth a look." : warn ? "Solid foundation with a few notes." : "All checks passed."),
+        el("div", { class: "counts" }, cnt(ok, "passed", "ok"), cnt(warn, "note" + (warn > 1 ? "s" : ""), "warn"), cnt(bad, "critical", "bad"))))));
   countUp(scoreNum, A.score);
 
-  const lw = el("div", { class: "box span7", style: "animation-delay:.05s" }, el("h3", {}, "Sprachen", el("small", {}, "nach Dateigröße")));
+  const lw = el("div", { class: "box span7", style: "animation-delay:.05s" }, el("h3", {}, "Languages", el("small", {}, "by file size")));
   lw.append(el("div", { class: "langbar" }, ...A.langs.map((l, i) => el("i", { style: `width:${(l.bytes / A.total * 100).toFixed(3)}%;background:${l.color};animation-delay:${i * 40}ms`, title: l.name }))));
   lw.append(el("div", { class: "rows", style: "display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 18px" }, ...A.langs.slice(0, 10).map(l =>
-    el("div", { class: "r" }, el("span", { class: "d", style: `background:${l.color}` }), el("span", { class: "n" }, l.name), el("span", { class: "v" }, (l.bytes / A.total * 100).toFixed(1) + " %")))));
+    el("div", { class: "r" }, el("span", { class: "d", style: `background:${l.color}` }), el("span", { class: "n" }, l.name), el("span", { class: "v" }, (l.bytes / A.total * 100).toFixed(1) + "%")))));
   g.append(lw);
 
-  g.append(el("div", { class: "box span12", style: "animation-delay:.1s" }, el("h3", {}, "Prüfungen"),
+  g.append(el("div", { class: "box span12", style: "animation-delay:.1s" }, el("h3", {}, "Checks"),
     el("ul", { class: "checks" }, ...A.checks.map(c => el("li", { class: c.s }, el("span", { class: "st" }, c.s === "ok" ? "✓" : c.s === "warn" ? "!" : c.s === "bad" ? "✕" : "–"), el("b", {}, c.t), el("span", { class: "why" }, c.w))))));
 
-  g.append(el("div", { class: "box span4", style: "animation-delay:.15s" }, el("h3", {}, "Stack", el("small", {}, A.stack.length + " erkannt")),
-    A.stack.length ? el("div", { class: "chips" }, ...A.stack.map(s => el("span", { class: "chip" }, s))) : el("p", { class: "empty-note" }, "Kein bekannter Stack erkannt.")));
+  g.append(el("div", { class: "box span4", style: "animation-delay:.15s" }, el("h3", {}, "Stack", el("small", {}, A.stack.length + " detected")),
+    A.stack.length ? el("div", { class: "chips" }, ...A.stack.map(s => el("span", { class: "chip" }, s))) : el("p", { class: "empty-note" }, "No known stack detected.")));
 
   const ast = heuristicAst(A); const deg = new Map(); ast.edges.forEach(e => deg.set(e.to, (deg.get(e.to) || 0) + (e.w || 1)));
   const hubs = [...deg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  g.append(el("div", { class: "box span4", style: "animation-delay:.2s" }, el("h3", {}, "Meistgenutzt", el("small", {}, "eingehende Importe")),
+  g.append(el("div", { class: "box span4", style: "animation-delay:.2s" }, el("h3", {}, "Most used", el("small", {}, "incoming imports")),
     hubs.length ? el("div", { class: "rows" }, ...hubs.map(([id, w]) => { const n = ast.nodes.find(x => x.id === id);
       return el("button", { class: "r", type: "button", onclick: () => { switchTab("arch"); setTimeout(() => { select(id); centerOn(id); }, 60); } },
         el("span", { class: "d", style: `background:var(--c-${n.cat})` }), el("span", { class: "n" }, n.label), el("span", { class: "v" }, fmtInt(w)), el("span", { class: "ar" }, "→")); }))
-      : el("p", { class: "empty-note" }, "Keine Importe ausgewertet.")));
+      : el("p", { class: "empty-note" }, "No imports analyzed.")));
 
-  g.append(el("div", { class: "box span4", style: "animation-delay:.25s" }, el("h3", {}, "Größte Dateien", el("small", {}, "Hotspots")),
+  g.append(el("div", { class: "box span4", style: "animation-delay:.25s" }, el("h3", {}, "Largest files", el("small", {}, "hotspots")),
     el("div", { class: "rows" }, ...[...A.files].sort((a, b) => b.size - a.size).slice(0, 8).map(f => { const u = repoUrl(f.path, false);
       return el("div", { class: "r f" }, el("span", { class: "d", style: `background:${langOf(f.path)[1]}` }), u ? el("a", { class: "n", href: u, target: "_blank", rel: "noopener", title: f.path }, f.path) : el("span", { class: "n", title: f.path }, f.path), el("span", { class: "v" }, fmtBytes(f.size))); }))));
 
   const notes = [];
-  if (DATA.truncated) notes.push("GitHub hat den Dateibaum gekürzt geliefert. Sehr große Repos sind deshalb unvollständig.");
-  if (DATA.source === "github" && A.analysed) notes.push(`Importe stammen aus einer Stichprobe von ${A.analysed} gelesenen Quelldateien.`);
-  if (DATA.source === "sample") notes.push("Beispieldaten: Dateibaum und Importe von ahmedkhaleel2004/gitdiagram, erfasst am 2. November 2026.");
+  if (DATA.truncated) notes.push("GitHub returned a truncated file tree, so very large repos are incomplete.");
+  if (DATA.source === "github" && A.analysed) notes.push(`Imports come from a sample of ${A.analysed} source files.`);
+  if (DATA.source === "sample") notes.push("Example data: file tree and imports of ahmedkhaleel2004/gitdiagram, captured on November 2, 2026.");
   if (notes.length) g.append(el("div", { class: "box span12", style: "animation-delay:.3s" }, el("h3", {}, "Hinweise"), ...notes.map(t => el("div", { class: "notice" }, t))));
 }
 function countUp(node, to) {
@@ -672,11 +720,11 @@ function setMode(m) {
   SELECTED = null; closePanel(); renderCanvas();
 }
 $("#sideBtn").onclick = () => { SHOW_SIDE = !SHOW_SIDE; renderCanvas(); };
-const setDir = d => { DIR = d; $("#dirTD").setAttribute("aria-pressed", d === "TD"); $("#dirLR").setAttribute("aria-pressed", d === "LR"); knobDir(); renderCanvas(); };
-$("#dirTD").onclick = () => setDir("TD"); $("#dirLR").onclick = () => setDir("LR");
+const setDir = m => { DIR_MODE = m; if (m !== "auto") DIR = m; renderCanvas(); };
+$("#dirAuto").onclick = () => setDir("auto"); $("#dirTD").onclick = () => setDir("TD"); $("#dirLR").onclick = () => setDir("LR");
 $("#copyMm").onclick = async () => {
   const b = $("#copyMm"), src = compileMermaid(currentAst(), DIR);
-  const done = ok => { b.title = ok ? "Kopiert" : "Kopieren nicht möglich"; b.animate([{ transform: "scale(.9)" }, { transform: "scale(1.08)" }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.16,1,.3,1)" }); toast(ok ? "Mermaid-Quelltext kopiert" : "Kopieren nicht möglich"); };
+  const done = ok => { b.title = ok ? "Copied" : "Copy failed"; b.animate([{ transform: "scale(.9)" }, { transform: "scale(1.08)" }, { transform: "none" }], { duration: 320, easing: "cubic-bezier(.16,1,.3,1)" }); toast(ok ? "Mermaid source copied" : "Copy failed"); };
   try { await navigator.clipboard.writeText(src); done(true); }
   catch { const ta = el("textarea", { style: "position:fixed;left:-9999px" }); ta.value = src; document.body.append(ta); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch {} ta.remove(); done(ok); }
 };
@@ -690,13 +738,13 @@ document.addEventListener("pointerdown", e => { if (!e.target.closest(".anchor")
 
 /* ============ Analyse-Protokoll (Build-Log) & Toasts ============ */
 let logHide = 0;
-function logStart(title = "Analyse läuft") {
+function logStart(title = "Analyzing") {
   clearTimeout(logHide);
   const l = $("#log"); l.dataset.open = "true"; $("#logBody").textContent = ""; $("#logTitle").textContent = title; $("#logSt").className = "st";
 }
-function logStep(text, cls = "") { const r = el("div", { class: "row " + cls }, el("i", {}, cls === "err" ? "✕" : cls === "done" ? "✓" : "›"), el("span", {}, text)); $("#logBody").append(r); $("#logBody").scrollTop = 1e6; if (cls === "err") { $("#logSt").className = "st err"; $("#logTitle").textContent = "Analyse fehlgeschlagen"; } return r; }
+function logStep(text, cls = "") { const r = el("div", { class: "row " + cls }, el("i", {}, cls === "err" ? "✕" : cls === "done" ? "✓" : "›"), el("span", {}, text)); $("#logBody").append(r); $("#logBody").scrollTop = 1e6; if (cls === "err") { $("#logSt").className = "st err"; $("#logTitle").textContent = "Analysis failed"; } return r; }
 function logDone(r, text) { r.className = "row done"; r.firstChild.textContent = "✓"; if (text) r.lastChild.textContent = text; }
-function logFinish(text) { $("#logSt").className = "st ok"; $("#logTitle").textContent = text || "Analyse abgeschlossen"; logHide = setTimeout(() => { $("#log").dataset.open = "false"; }, 3800); }
+function logFinish(text) { $("#logSt").className = "st ok"; $("#logTitle").textContent = text || "Analysis complete"; logHide = setTimeout(() => { $("#log").dataset.open = "false"; }, 3800); }
 $("#logClose").onclick = () => { $("#log").dataset.open = "false"; };
 function toast(text) { logStart(text); $("#logBody").append(el("div", { class: "row done" }, el("i", {}, "✓"), el("span", {}, text))); logFinish(text); }
 
@@ -714,12 +762,12 @@ $("#loadForm").addEventListener("submit", async e => {
   e.preventDefault();
   const v = $("#repoInput").value; if (!v.trim()) { $("#repoInput").focus(); return; }
   const b = $("#loadBtn"); b.disabled = true; b.classList.add("busy");
-  try { const d = await loadGitHub(v); show(d); logFinish(`${d.repo} analysiert`); }
+  try { const d = await loadGitHub(v); show(d); logFinish(`${d.repo} analyzed`); }
   catch (err) { if ($("#log").dataset.open !== "true") logStart(); logStep(err.message || String(err), "err"); }
   finally { b.disabled = false; b.classList.remove("busy"); }
 });
 $("#dirInput").addEventListener("change", async e => {
-  try { const d = await loadLocal(e.target.files); show(d); logFinish(`»${d.repo}« analysiert`); } catch (err) { logStart(); logStep(err.message || String(err), "err"); }
+  try { const d = await loadLocal(e.target.files); show(d); logFinish(`“${d.repo}” analyzed`); } catch (err) { logStart(); logStep(err.message || String(err), "err"); }
   e.target.value = "";
 });
 $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE); };
@@ -729,7 +777,7 @@ let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() 
 if (document.fonts?.ready) document.fonts.ready.then(() => { moveTabInd(false); knobMode(false); knobDir(false); });
 
 /* ============ Start ============ */
-const SAMPLE = (() => { try { const s = JSON.parse(document.getElementById("sample-data").textContent); s.source = "sample"; s.description = "Verwandelt ein GitHub-Repository in ein interaktives Architekturdiagramm."; return s; } catch { return null; } })();
+const SAMPLE = (() => { try { const s = JSON.parse(document.getElementById("sample-data").textContent); s.source = "sample"; s.description = "Turns a GitHub repository into an interactive architecture diagram."; return s; } catch { return null; } })();
 const qp = new URLSearchParams(location.search).get("repo");
 if (qp) { $("#repoInput").value = qp; $("#loadForm").requestSubmit(); }
 else if (SAMPLE) show(SAMPLE);

@@ -26,9 +26,9 @@ FAVICON = ("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 vie
            "%3Crect x=%222.5%22 y=%223%22 width=%224%22 height=%223%22 rx=%221%22/%3E%3Crect x=%229.5%22 y=%223%22 width=%224%22 height=%223%22 rx=%221%22/%3E"
            "%3Crect x=%226%22 y=%2210%22 width=%224%22 height=%223%22 rx=%221%22/%3E%3Cpath d=%22M4.5 6v2h7V6M8 8v2%22/%3E%3C/g%3E%3C/svg%3E")
 
-site = ('<!doctype html><html lang="de"><head><meta charset="utf-8">'
+site = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">'
-        '<meta name="description" content="Architektur, Abhängigkeiten und Projektgesundheit eines Code-Repositorys auf einen Blick.">'
+        '<meta name="description" content="Architecture, dependencies and project health of a code repository at a glance.">'
         f'<link rel="icon" href="{FAVICON}">'
         '<style>[hidden]{display:none!important}body{margin:0}</style></head><body>' + page() + "</body></html>")
 (root / "public").mkdir(exist_ok=True)
