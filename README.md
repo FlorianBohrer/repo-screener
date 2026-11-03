@@ -12,6 +12,15 @@ A screener and visualizer for code projects. It runs entirely in the browser wit
 6. **Relationships:** each component keeps only its strongest dependencies, but always its strongest incoming arrow. Weak shortcuts through an intermediate component are dropped. Every relationship carries a verb ("calls", "uses", "authenticates", "reads config" …); the import count is shown in the detail panel and on hover.
 7. **Architecture canvas:** laid out with dagre. The direction is chosen automatically: both top-to-bottom and left-to-right are computed and the one that fits the screen larger wins (or pick ↓ / → yourself). User → app shell → views → feature logic → core → external services in the last row. Lines run at right angles with rounded corners, each with its own anchor point on the card edge, and parallel cross segments get separate lanes. Tooling, tests, docs and developer infrastructure are hidden by default and can be shown with "Tooling & Tests". Components without connections appear as small chips below.
 
+8. **Architecture guide (no AI):** “Explain this architecture” or the **Guide** button opens a written explanation derived entirely from the code and its docs:
+   - a **summary** (kind of project, framework, entry point, feature areas, backbone components, external services),
+   - **main flows** – the strongest paths from the user to each external service, as a sentence and highlighted on the canvas,
+   - **layers** (UI, logic & services, core & data, external services),
+   - **where to start reading** – entry file, central services, models,
+   - **what the authors say** – architecture sections of the README (“How it's built”, “Architecture” …), `docs/architecture.md`, and the relationships from Mermaid diagrams in those docs,
+   - a **guided tour** that walks through the diagram stop by stop (← / → keys).
+   Every card also gets a role description, its header comment (only file headers or the comment above the main export) and the names it exports.
+
 Also:
 
 - **Screening:** 10 checks with a score: README, license, CI, test ratio, docs, lockfile, lint/format, deployment, committed `.env`, large files.
@@ -31,6 +40,8 @@ Also:
 | Open a component | Click a card |
 | Inspect a relationship | Hover a line; click jumps to its source |
 | Highlight a category | Hover a legend entry |
+| Explain the architecture | “Explain this architecture” or the Guide button |
+| Tour | “Take the tour”, then ← / → |
 | Close the panel | ✕, `Esc` or swipe it to the right |
 | Focus the search | `/` or ⌘/Ctrl + K |
 
@@ -50,6 +61,7 @@ This produces `public/index.html`, which can be opened directly in a browser.
 |---|---|
 | `src/ui-head.html` | Styles and markup |
 | `src/core.js` | Analysis: languages, components, imports, stack, screening, loaders |
+| `src/explain.js` | Architecture guide: summary, flows, layers, reading order, docs, tour |
 | `src/ui.js` | UI: canvas, spring animations, panel, treemap, files, screening |
 | `src/sample.json` | Example data (file tree and imports of a public repo) |
 | `build.py` | Assembles everything into one page |

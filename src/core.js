@@ -114,6 +114,34 @@ function extractImports(path, text) {
   return [...out];
 }
 
+/* ============ Was der Autor sagt: Kommentar am Dateianfang und exportierte Namen ============ */
+const NOISE_DOC = /(licen[cs]e|copyright|eslint|prettier|@ts-|tslint|jshint|istanbul|biome-ignore|^\s*(src|app)\/[\w./-]+\s*$|generated|do not edit|auto-?generated)/i;
+function extractMeta(path, text) {
+  const head = text.slice(0, 6000);
+  let doc = "";
+  if (/\.py$/i.test(path)) { const m = head.match(/^\s*(?:#[^\n]*\n\s*)*(?:"""|\'\'\')([\s\S]*?)(?:"""|\'\'\')/); if (m) doc = m[1]; }
+  if (!doc) {
+    /* nur Kopfkommentar (vor dem ersten Code) oder Kommentar direkt über dem Haupt-Export – keine Kommentare an einzelnen Feldern */
+    const firstCode = head.search(/^(?!\s*(import\b|\/\/|\/\*|\*|$|["']use\b))/m);
+    for (const m of head.matchAll(/\/\*\*?([\s\S]*?)\*\/|((?:^[ \t]*\/\/[^\n]*\n){2,})/gm)) {
+      const after = head.slice(m.index + m[0].length, m.index + m[0].length + 160);
+      const isHeader = firstCode < 0 || m.index < firstCode;
+      const isMainExport = /^\s*(@\w+\([\s\S]*?\)\s*)?export\s+(default\s+)?(abstract\s+)?(class|function|async function|const)\b/.test(after) && !/^\s*export\s+(interface|type)\b/.test(after);
+      if (!isHeader && !isMainExport) continue;
+      const t = (m[1] || m[2] || "").replace(/^[ \t]*(\*|\/\/)[ \t]?/gm, "").replace(/@\w+[^\n]*/g, "").trim();
+      if (t.length >= 24 && !NOISE_DOC.test(t)) { doc = t; break; }
+    }
+  }
+  doc = doc.replace(/\s+/g, " ").trim();
+  if (doc.length > 260) { const cut = doc.slice(0, 260); doc = (cut.lastIndexOf(". ") > 80 ? cut.slice(0, cut.lastIndexOf(". ") + 1) : cut + "…"); }
+  const exp = new Set();
+  for (const m of text.matchAll(/^export\s+(?:default\s+)?(?:abstract\s+)?(?:async\s+)?(class|function|const|let|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm)) exp.add(m[2]);
+  if (/\.py$/i.test(path)) for (const m of text.matchAll(/^(?:class|def)\s+([A-Za-z]\w*)/gm)) if (!m[1].startsWith("_")) exp.add(m[1]);
+  const x = [...exp].slice(0, 10);
+  return doc || x.length ? { d: doc, x } : null;
+}
+const ARCH_DOC = /^(architecture|ARCHITECTURE|design|DESIGN)\.md$|^docs?\/(architecture|design|overview|structure|how-it-works)\.md$/i;
+
 /* ============ Externe Dienste: Paketnamen → Dienst ============ */
 const EXTERNALS = [
   { id: "auth", label: "Authentication", js: /^(ngx-clerk|@clerk\/|@auth0\/|next-auth|@supabase\/auth|firebase\/auth|@okta\/|keycloak|passport)/, py: /^(authlib|flask_login|django\.contrib\.auth)$/, verb: "authenticates",
@@ -549,7 +577,9 @@ async function loadGitHub(input) {
     : fetch(`https://raw.githubusercontent.com/${p.owner}/${p.repo}/${encodeURIComponent(branch)}/${path.split("/").map(encodeURIComponent).join("/")}`).then(r => r.ok ? r.text() : "");
   s = logStep("Reading README and manifests …");
   const readmePath = files.find(f => /^readme(\.md|\.rst|\.txt)?$/i.test(f[0]))?.[0];
-  const readme = readmePath ? (await raw(readmePath).catch(() => "")).slice(0, 4000) : "";
+  const readme = readmePath ? (await raw(readmePath).catch(() => "")).slice(0, 12000) : "";
+  const archPath = files.find(f => ARCH_DOC.test(f[0]))?.[0];
+  const archDoc = archPath ? { path: archPath, text: (await raw(archPath).catch(() => "")).slice(0, 8000) } : null;
   const deps = [];
   for (const mf of files.filter(f => /(^|\/)package\.json$/.test(f[0])).slice(0, 4)) {
     try { const pj = JSON.parse(await raw(mf[0])); deps.push(...Object.keys(pj.dependencies || {}), ...Object.keys(pj.devDependencies || {})); } catch {}
@@ -564,13 +594,13 @@ async function loadGitHub(input) {
   const bl = [...buckets.values()]; bl.forEach(b => b.sort((a, c) => c[1] - a[1]));
   while (pick.length < LIMIT && bl.some(b => b.length > round)) { for (const b of bl) if (b[round] && pick.length < LIMIT) pick.push(b[round]); round++; }
   s = logStep(`Reading source: 0 / ${pick.length}`);
-  const imports = {}; let done = 0;
+  const imports = {}, fileMeta = {}; let done = 0;
   const queue = [...pick];
   await Promise.all(Array.from({ length: 8 }, async () => {
-    while (queue.length) { const f = queue.shift(); try { const t = await raw(f[0]); const sp = extractImports(f[0], t); if (sp.length) imports[f[0]] = sp; } catch {} done++; s.lastChild.textContent = `Reading source: ${done} / ${pick.length}`; }
+    while (queue.length) { const f = queue.shift(); try { const t = await raw(f[0]); const sp = extractImports(f[0], t); if (sp.length) imports[f[0]] = sp; const mt = extractMeta(f[0], t); if (mt) fileMeta[f[0]] = mt; } catch {} done++; s.lastChild.textContent = `Reading source: ${done} / ${pick.length}`; }
   }));
   logDone(s, `${pick.length} source files read, ${Object.keys(imports).length} with imports`);
-  return { source: "github", repo: `${p.owner}/${p.repo}`, branch, description: meta.description, files, imports, readme, deps, truncated: tree.truncated };
+  return { source: "github", repo: `${p.owner}/${p.repo}`, branch, description: meta.description, files, imports, readme, deps, truncated: tree.truncated, meta: fileMeta, archDoc };
 }
 
 /* ============ Laden: lokaler Ordner ============ */
@@ -582,15 +612,16 @@ async function loadLocal(fileList) {
     .filter(x => x.path && !x.path.split("/").some(s => IGNORE_DIRS.has(s)));
   let s = logStep(`${fmtInt(items.length)} files collected from “${rootName}”`); logDone(s);
   const files = items.map(x => [x.path, x.f.size]);
-  const imports = {}; let readme = "", deps = [];
+  const imports = {}, fileMeta = {}; let readme = "", deps = [];
   const src = items.filter(x => isImportable(x.path) && x.f.size < 400000).slice(0, 4000);
   s = logStep(`Analyzing imports: 0 / ${src.length}`);
   let i = 0;
-  for (const x of src) { const sp = extractImports(x.path, await x.f.text()); if (sp.length) imports[x.path] = sp; if (++i % 50 === 0) s.lastChild.textContent = `Analyzing imports: ${i} / ${src.length}`; }
+  for (const x of src) { const txt = await x.f.text(); const sp = extractImports(x.path, txt); if (sp.length) imports[x.path] = sp; const mt = extractMeta(x.path, txt); if (mt) fileMeta[x.path] = mt; if (++i % 50 === 0) s.lastChild.textContent = `Analyzing imports: ${i} / ${src.length}`; }
   logDone(s, `${src.length} source files analyzed`);
-  const rd = items.find(x => /^readme(\.md|\.rst|\.txt)?$/i.test(x.path)); if (rd) readme = (await rd.f.text()).slice(0, 4000);
+  const rd = items.find(x => /^readme(\.md|\.rst|\.txt)?$/i.test(x.path)); if (rd) readme = (await rd.f.text()).slice(0, 12000);
+  const ad = items.find(x => ARCH_DOC.test(x.path)); const archDoc = ad ? { path: ad.path, text: (await ad.f.text()).slice(0, 8000) } : null;
   for (const x of items.filter(x => /(^|\/)package\.json$/.test(x.path)).slice(0, 6)) { try { const pj = JSON.parse(await x.f.text()); deps.push(...Object.keys(pj.dependencies || {}), ...Object.keys(pj.devDependencies || {})); } catch {} }
   const rq = items.find(x => /(^|\/)requirements\.txt$/.test(x.path)); if (rq) (await rq.f.text()).split("\n").forEach(l => { const m = l.trim().match(/^([A-Za-z0-9_.-]+)/); if (m && !l.startsWith("#")) deps.push(m[1].toLowerCase()); });
-  return { source: "local", repo: rootName, branch: "", files, imports, readme, deps };
+  return { source: "local", repo: rootName, branch: "", files, imports, readme, deps, meta: fileMeta, archDoc };
 }
 

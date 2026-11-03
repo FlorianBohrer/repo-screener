@@ -231,7 +231,7 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .pill{display:inline-flex;align-self:flex-start;align-items:center;gap:6px;font-size:11.5px;font-weight:500;padding:2px 9px;border-radius:99px;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}
 .pill i{width:6px;height:6px;border-radius:50%;background:var(--c)}
 .panel .pb{flex:1;overflow:auto;padding:14px 16px 18px;display:flex;flex-direction:column;gap:16px}
-.panel .pb>*{animation:rise .4s var(--out) both}
+.panel .pb>*{animation:rise .4s var(--out) both;flex-shrink:0}
 .panel .pb>*:nth-child(2){animation-delay:.03s}.panel .pb>*:nth-child(3){animation-delay:.06s}.panel .pb>*:nth-child(4){animation-delay:.09s}.panel .pb>*:nth-child(5){animation-delay:.12s}.panel .pb>*:nth-child(6){animation-delay:.15s}
 @keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .sec h4{margin:0 0 7px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3)}
@@ -258,6 +258,61 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .close{width:28px;height:28px;border-radius:8px;border:0;background:none;color:var(--text-2);cursor:pointer;display:grid;place-items:center;flex:none;transition:background-color .15s}
 .close:hover{background:var(--hover);color:var(--text)}
 .close svg{width:15px;height:15px}
+
+/* ===== Guide ===== */
+.explain{margin-top:10px;display:inline-flex;align-items:center;gap:7px;border:0;background:none;padding:0;color:var(--accent);font-weight:600;font-size:12.5px;cursor:pointer}
+.explain svg{width:14px;height:14px}
+.explain .ar{transition:transform .2s var(--out)}
+.explain:hover .ar{transform:translateX(3px)}
+.g-sum p{margin:0 0 8px;color:var(--text);font-size:13px;line-height:1.55}
+.g-sum p:first-child{font-size:14px;font-weight:500}
+.tourbtn{width:100%;justify-content:center}
+.gflow{display:flex;flex-direction:column;gap:6px;width:100%;text-align:left;border:1px solid var(--border);background:var(--surface-2);border-radius:10px;padding:10px 11px;margin-bottom:8px;cursor:pointer;transition:border-color .15s,background-color .15s}
+.gflow:hover{border-color:var(--ring);background:var(--hover)}
+.gflow .fh{font-weight:600;font-size:12.5px}
+.gflow .fx{font-size:12px;color:var(--text-2)}
+.fp{display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.fp .fn{font-size:11px;font-weight:500;padding:1px 7px;border-radius:99px;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);white-space:nowrap}
+.fp .arr,.rel .arr{color:var(--text-3);font-size:11px}
+.layer{padding:9px 0;border-top:1px solid var(--border)}
+.layer:first-of-type{border-top:0;padding-top:0}
+.layer .lh{display:flex;justify-content:space-between;font-size:12.5px}
+.layer p{margin:2px 0 7px;font-size:12px;color:var(--text-2)}
+.lchips{display:flex;flex-wrap:wrap;gap:5px}
+.lchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--surface-2);border-radius:99px;padding:2px 9px 2px 7px;font-size:11.5px;cursor:pointer;transition:border-color .15s}
+.lchip:hover{border-color:var(--c)}
+.lchip i{width:7px;height:7px;border-radius:50%;background:var(--c)}
+ol.start{margin:0;padding:0 0 0 18px;display:flex;flex-direction:column;gap:9px;font-size:12.5px}
+ol.start li::marker{color:var(--text-3);font-variant-numeric:tabular-nums}
+ol.start .sname{border:0;background:none;padding:0;font-weight:600;color:var(--text);cursor:pointer;display:block}
+ol.start .sname:hover{color:var(--accent)}
+ol.start .spath{display:block;font-size:11px;overflow-wrap:anywhere}
+ol.start .swhy{display:block;color:var(--text-2);font-size:12px}
+.doc{border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--surface-2);font-size:12.5px}
+.doc .dh{display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin-bottom:6px}
+.doc .dh a{display:inline-flex;gap:4px;align-items:center;font-size:11.5px}
+.doc .dh svg{width:11px;height:11px}
+.doc p{margin:0 0 7px;color:var(--text-2)}
+ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
+.rels{display:flex;flex-direction:column;gap:4px;margin-top:6px;padding-top:8px;border-top:1px dashed var(--border-2)}
+.rels>.muted{font-size:11px;margin-bottom:2px}
+.rel{display:flex;flex-wrap:wrap;gap:5px;align-items:baseline;font-size:12px}
+.rel span:not(.arr){font-weight:500}
+.rel em{font-style:normal;color:var(--text-3);font-size:11.5px}
+.rel.dotted .arr{opacity:.6}
+.desc.role{color:var(--text);font-size:13px;line-height:1.55}
+.desc.role.big{font-size:14px}
+.quote{margin:0;padding:8px 12px;border-left:3px solid var(--c);background:var(--surface-2);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--text-2)}
+.quote cite{display:block;margin-top:4px;font-style:normal;font-size:11px;color:var(--text-3)}
+.chip.mono{font-family:var(--mono);font-size:11px}
+.backlink{align-self:flex-start;border:0;background:none;padding:0;color:var(--accent);font-size:12px;font-weight:500;cursor:pointer}
+.dots{display:flex;gap:5px;flex-wrap:wrap}
+.dots .dot{width:22px;height:5px;border-radius:3px;border:0;padding:0;background:var(--border-2);cursor:pointer;transition:background-color .2s,width .25s var(--out)}
+.dots .dot.done{background:color-mix(in srgb,var(--accent) 45%,transparent)}
+.dots .dot.on{background:var(--accent);width:34px}
+.tournav{display:flex;gap:8px;justify-content:space-between}
+.tournav .btn.primary{margin-left:auto}
+.ghostlink{background:none;border-color:transparent}
 
 /* ===== Treemap ===== */
 .subbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border);background:color-mix(in srgb,var(--surface) 60%,transparent)}
@@ -370,6 +425,8 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
   <symbol id="i-key" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="5" cy="11" r="3"/><path d="M7.2 8.8L14 2M11.5 4.5l1.8 1.8M10 6l1.2 1.2"/></g></symbol>
   <symbol id="i-folder" viewBox="0 0 16 16"><path fill="currentColor" d="M1 4.2C1 3.5 1.5 3 2.2 3h3.4l1.6 1.6h6.6c.7 0 1.2.5 1.2 1.2v6.4c0 .7-.5 1.2-1.2 1.2H2.2C1.5 13.4 1 12.9 1 12.2z" opacity=".85"/></symbol>
   <symbol id="i-file" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4 1.5h5l3.5 3.5v9.5H4z"/><path d="M9 1.5V5h3.5"/></g></symbol>
+  <symbol id="i-book" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M2 3c2-.9 4-.9 6 .4 2-1.3 4-1.3 6-.4v10c-2-.9-4-.9-6 .4-2-1.3-4-1.3-6-.4zM8 3.4v10"/></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4.5 2.8v10.4c0 .6.6.9 1.1.6l8-5.2c.4-.3.4-.9 0-1.2l-8-5.2c-.5-.3-1.1 0-1.1.6z"/></symbol>
   <symbol id="i-x" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 4l8 8M12 4l-8 8"/></symbol>
   <symbol id="i-plus" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 3v10M3 8h10"/></symbol>
   <symbol id="i-minus" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 8h10"/></symbol>
@@ -440,6 +497,7 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
             <h1 id="repoTitle">–</h1>
             <p id="repoDesc"></p>
             <div class="kpis" id="kpis"></div>
+            <button class="explain" type="button" id="explainBtn"><svg><use href="#i-book"/></svg>Explain this architecture<span class="ar">→</span></button>
           </div>
           <div class="overview floating" id="overview" hidden></div>
         </div>
@@ -449,6 +507,7 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
             <button type="button" id="dirTD" aria-pressed="false" aria-label="Top to bottom"><svg><use href="#i-down"/></svg></button>
             <button type="button" id="dirLR" aria-pressed="false" aria-label="Left to right"><svg><use href="#i-right"/></svg></button>
           </div>
+          <button class="btn sm" type="button" id="guideBtn" title="Architecture guide"><svg><use href="#i-book"/></svg><span>Guide</span></button>
           <button class="btn sm" type="button" id="sideBtn" aria-pressed="false" hidden><svg><use href="#k-tooling"/></svg><span>Tooling &amp; Tests</span></button>
           <button class="btn sm icon" type="button" id="copyMm" title="Copy Mermaid source" aria-label="Copy Mermaid source"><svg><use href="#i-copy"/></svg></button>
         </div>

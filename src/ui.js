@@ -80,7 +80,17 @@ function renderHeader() {
 const CARD_W = 212, CARD_H = 60, CHIP_W = 184, CHIP_H = 34;
 let SHOW_SIDE = false;
 const USE_CLUSTERS = false; /* dagre-Cluster ziehen den Fluss auseinander; Rahmen werden nur gezeichnet, wenn sie frei liegen */
-const dim = n => n.kind === "user" ? { w: 118, h: 40 } : n._chip ? { w: CHIP_W, h: CHIP_H } : { w: CARD_W, h: CARD_H };
+/* Karten wachsen mit der Zahl ihrer Anschlüsse, damit sich die Linien an der Kante nicht drängen */
+let PORT_DEG = new Map();
+const PORT_GAP_TD = 22, PORT_GAP_LR = 15;
+const dim = (n, td = DIR === "TD") => {
+  if (n.kind === "user") return { w: 118, h: 40 };
+  if (n._chip) return { w: CHIP_W, h: CHIP_H };
+  const k = PORT_DEG.get(n.id) || 0;
+  return td ? { w: Math.max(CARD_W, Math.round(k * PORT_GAP_TD / 0.75)), h: CARD_H } : { w: CARD_W, h: Math.max(CARD_H, Math.round(k * PORT_GAP_LR / 0.75)) };
+};
+/* Zwischenraum zwischen den Ebenen wächst mit der Zahl der Linien, die ihn kreuzen */
+const rankSep = (edges, td) => { const maxDeg = Math.max(0, ...PORT_DEG.values()); return (td ? 46 : 64) + Math.min(td ? 70 : 110, Math.max(0, edges.length - 10) * (td ? 2.2 : 3.2) + maxDeg * 4); };
 const view = { s: spring(1, { eps: 0.0005 }), x: spring(0, { eps: 0.2 }), y: spring(0, { eps: 0.2 }) };
 let viewRaf = 0;
 const applyView = () => { if (viewRaf) return; viewRaf = requestAnimationFrame(() => { viewRaf = 0; const c = $("#canvas"); c.style.transform = `translate(${view.x.value}px,${view.y.value}px) scale(${view.s.value})`; c.classList.toggle("far", view.s.value < 0.62); }); };
@@ -92,8 +102,8 @@ function renderLegend(ast) {
   const used = new Set(ast.nodes.filter(n => !n._chip).map(n => n.cat));
   for (const c of CAT_ORDER) if (used.has(c)) {
     const chip = el("span", { style: `--c:var(--c-${c})` }, el("i"), CATS[c].label);
-    chip.addEventListener("mouseenter", () => { if (SELECTED) return; $("#canvas").classList.add("preview"); CARD_ELS.forEach((card, id) => card.classList.toggle("dim", card.style.getPropertyValue("--c") !== `var(--c-${c})`)); EDGE_ELS.forEach(x => { x.base.classList.add("dim"); x.label?.classList.add("dim"); }); GROUP_ELS.forEach(g => g.el.classList.add("dim")); });
-    chip.addEventListener("mouseleave", () => { if (!SELECTED) highlight(null); });
+    chip.addEventListener("mouseenter", () => { if (SELECTED || LOCK) return; $("#canvas").classList.add("preview"); CARD_ELS.forEach((card, id) => card.classList.toggle("dim", card.style.getPropertyValue("--c") !== `var(--c-${c})`)); EDGE_ELS.forEach(x => { x.base.classList.add("dim"); x.label?.classList.add("dim"); }); GROUP_ELS.forEach(g => g.el.classList.add("dim")); });
+    chip.addEventListener("mouseleave", () => { if (!SELECTED && !LOCK) highlight(null); });
     lg.append(chip);
   }
 }
@@ -104,8 +114,8 @@ function pickDir(linked, edges) {
   if (!linked.length || typeof dagre === "undefined") return "TD";
   const st = $("#stage"), sw = st.clientWidth || 1200, sh = st.clientHeight || 700;
   const size = td => {
-    const g = new dagre.graphlib.Graph(); g.setGraph({ rankdir: td ? "TB" : "LR", nodesep: 34, edgesep: 18, ranksep: td ? 46 : 64, marginx: 50, marginy: 50 }); g.setDefaultEdgeLabel(() => ({}));
-    linked.forEach(n => { const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); });
+    const g = new dagre.graphlib.Graph(); g.setGraph({ rankdir: td ? "TB" : "LR", nodesep: td ? 34 : 30, edgesep: 22, ranksep: rankSep(edges, td), marginx: 50, marginy: 50 }); g.setDefaultEdgeLabel(() => ({}));
+    linked.forEach(n => { const d = dim(n, td); g.setNode(n.id, { width: d.w, height: d.h }); });
     edges.forEach(e => { if (g.hasNode(e.from) && g.hasNode(e.to)) g.setEdge(e.from, e.to, e.label ? { width: Math.ceil(e.label.length * 6.1 + 16), height: 18, labelpos: "c" } : {}); });
     dagre.layout(g); return { w: g.graph().width, h: g.graph().height };
   };
@@ -159,6 +169,8 @@ function renderCanvas({ animate = true } = {}) {
   renderLegend(ast);
   const byId = new Map(ast.nodes.map(n => [n.id, n]));
   const extIds = new Set(linked.filter(n => n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user")).map(n => n.id));
+  PORT_DEG = new Map();
+  for (const n of linked) { const o = ast.edges.filter(e => e.from === n.id).length, i = ast.edges.filter(e => e.to === n.id).length; PORT_DEG.set(n.id, Math.max(o, i)); }
   if (DIR_MODE === "auto") DIR = pickDir(linked, ast.edges);
   const TD = DIR === "TD";
   updateDirUi();
@@ -173,7 +185,7 @@ function renderCanvas({ animate = true } = {}) {
 
   const layout = extraMinlen => {
     const g = new dagre.graphlib.Graph({ compound: true });
-    g.setGraph({ rankdir: TD ? "TB" : "LR", nodesep: 34, edgesep: 18, ranksep: TD ? 46 : 64, marginx: 50, marginy: 50 });
+    g.setGraph({ rankdir: TD ? "TB" : "LR", nodesep: TD ? 34 : 30, edgesep: 22, ranksep: rankSep(ast.edges, TD), marginx: 50, marginy: 50 });
     g.setDefaultEdgeLabel(() => ({}));
     if (USE_CLUSTERS) groups.forEach(gr => g.setNode(gr.id, {}));
     for (const n of linked) { if (!extraMinlen && extIds.has(n.id)) continue; const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); if (USE_CLUSTERS && groupIdOf.has(n.id)) g.setParent(n.id, groupIdOf.get(n.id)); }
@@ -244,9 +256,9 @@ function renderCanvas({ animate = true } = {}) {
   /* Anschlusspunkte verteilen, sortiert nach der Richtung, in die die Kante läuft */
   const ports = new Map();
   const assign = (id, list, side) => {
-    const n = byId.get(id), d = dim(n), c = pos.get(id)[S], span = (TD ? d.w : d.h) * (n.kind === "user" ? 0.4 : 0.7);
+    const n = byId.get(id), d = dim(n), c = pos.get(id)[S], span = (TD ? d.w : d.h) * (n.kind === "user" ? 0.4 : 0.78);
     list.sort((a, b) => a.k - b.k);
-    const step = list.length > 1 ? Math.min(TD ? 26 : 14, span / (list.length - 1)) : 0;
+    const step = list.length > 1 ? Math.min(TD ? 26 : 18, span / (list.length - 1)) : 0;
     list.forEach((r, j) => ports.set(r.r.i + side, c + (j - (list.length - 1) / 2) * step));
   };
   const outs = new Map(), ins = new Map();
@@ -277,13 +289,19 @@ function renderCanvas({ animate = true } = {}) {
     return { e, ed, v };
   });
   /* 2. Spuren: überlappende Quersegmente im selben Zwischenraum bekommen verschiedene Höhen */
-  const byGap = new Map(); cross.forEach(c => { if (!byGap.has(c.key)) byGap.set(c.key, []); byGap.get(c.key).push(c); });
-  byGap.forEach(list => {
-    list.sort((x, y) => x.from - y.from || x.to - y.to);
-    const lanes = []; list.forEach(c => { let l = lanes.findIndex(end => end < c.from - 8); if (l < 0) { l = lanes.length; lanes.push(c.to); } else lanes[l] = c.to; c.lane = l; });
-    const n = lanes.length, room = Math.max(6, Math.min(...list.map(c => Math.abs(c.hi - c.lo))) - 20), step = n > 1 ? Math.min(7, room / (n - 1)) : 0;
-    list.forEach(c => { const off = (c.lane - (n - 1) / 2) * step; c.m1[P] += off; c.m2[P] += off; });
-  });
+  /* Quersegmente, die im selben Zwischenraum liegen (Mitte < 28 px auseinander), bilden eine Rinne und werden gemeinsam verteilt */
+  cross.forEach(c => { c.mid = c.m1[P]; });
+  const sortedCross = [...cross].sort((x, y) => x.mid - y.mid), channels = [];
+  for (const c of sortedCross) { const ch = channels[channels.length - 1]; if (ch && c.mid - ch.last < 28) { ch.items.push(c); ch.last = c.mid; } else channels.push({ items: [c], last: c.mid }); }
+  for (const ch of channels) {
+    const list = ch.items.sort((x, y) => x.from - y.from || x.to - y.to);
+    const lanes = []; list.forEach(c => { let l = lanes.findIndex(end => end < c.from - 10); if (l < 0) { l = lanes.length; lanes.push(c.to); } else lanes[l] = c.to; c.lane = l; });
+    const n = lanes.length, center = list.reduce((a, c) => a + c.mid, 0) / list.length;
+    const lo = Math.max(...list.map(c => Math.min(c.lo, c.hi))) + 12, hi = Math.min(...list.map(c => Math.max(c.lo, c.hi))) - 12;
+    const room = Math.max(8, hi - lo), step = n > 1 ? Math.min(22, room / (n + 1)) : 0;
+    const base = Math.min(Math.max(center - (n - 1) * step / 2, lo), Math.max(lo, hi - (n - 1) * step));
+    list.forEach(c => { const pos = n > 1 ? base + c.lane * step : center; c.m1[P] = pos; c.m2[P] = pos; });
+  }
   built.forEach(({ e, ed, v }, ri) => {
     const d = roundPath(v);
     const sw = e.w ? 1.25 + Math.min(1.8, Math.log2(e.w + 1) * 0.4) : 1.4;
@@ -292,9 +310,9 @@ function renderCanvas({ animate = true } = {}) {
     if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s";
     const hit = document.createElementNS(NS, "path"); hit.setAttribute("d", d); hit.setAttribute("class", "hit"); hit.dataset.from = e.from;
     const tipText = `${byId.get(e.from)?.label} → ${byId.get(e.to)?.label}\n${e.label || ""}${e.w ? ` · ${e.w} import${e.w === 1 ? "" : "s"}` : ""}`;
-    hit.addEventListener("mouseenter", () => { basePath.classList.add("hover"); if (!SELECTED) { label?.classList.add("hot"); } });
+    hit.addEventListener("mouseenter", () => { basePath.classList.add("hover"); if (!SELECTED && !LOCK) { label?.classList.add("hot"); } });
     hit.addEventListener("mousemove", ev => { const t = $("#tip"); t.hidden = false; t.textContent = tipText; t.style.left = Math.min(ev.clientX + 14, innerWidth - 370) + "px"; t.style.top = (ev.clientY + 16) + "px"; });
-    hit.addEventListener("mouseleave", () => { basePath.classList.remove("hover"); $("#tip").hidden = true; if (!SELECTED) label?.classList.remove("hot"); });
+    hit.addEventListener("mouseleave", () => { basePath.classList.remove("hover"); $("#tip").hidden = true; if (!SELECTED && !LOCK) label?.classList.remove("hot"); });
     svg.append(basePath, flow, hit);
     var label = null;
     if (e.label) {
@@ -317,7 +335,7 @@ function renderCanvas({ animate = true } = {}) {
   order.forEach((n, i) => {
     const p = pos.get(n.id), d = dim(n);
     const isExt = n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user");
-    const at = `left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px`;
+    const at = `left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px` + (!n._chip && n.kind !== "user" && (d.w !== CARD_W || d.h !== CARD_H) ? `;width:${d.w}px;height:${d.h}px` : "");
     let card;
     if (n.kind === "user") {
       card = el("div", { class: "card user", style: `--c:var(--c-user);${at}` }, el("span", { class: "ico" }, catIcon("user")), el("span", { class: "nm" }, n.label));
@@ -335,8 +353,8 @@ function renderCanvas({ animate = true } = {}) {
     card.addEventListener("click", ev => { ev.stopPropagation(); select(n.id); centerOn(n.id); });
     card.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id); } });
     card.addEventListener("pointerdown", ev => ev.stopPropagation());
-    card.addEventListener("mouseenter", () => { if (!SELECTED) highlight(n.id, true); });
-    card.addEventListener("mouseleave", () => { if (!SELECTED) highlight(null); });
+    card.addEventListener("mouseenter", () => { if (!SELECTED && !LOCK) highlight(n.id, true); });
+    card.addEventListener("mouseleave", () => { if (!SELECTED && !LOCK) highlight(null); });
     nodesEl.append(card); CARD_ELS.set(n.id, card);
     if (animate && !REDUCE.matches) card.animate([{ opacity: 0, transform: "translateY(8px) scale(.97)" }, { opacity: 1, transform: "none" }], { duration: 480, delay: Math.min(480, i * 24), easing: "cubic-bezier(.16,1,.3,1)", fill: "backwards" });
   });
@@ -464,7 +482,11 @@ function closePanel() { panelX.to(1, { damping: 1 }); }
   for (const id of ["#panelHead"]) { const h = $(id); h.addEventListener("pointerdown", start); h.addEventListener("pointermove", move); h.addEventListener("pointerup", end); h.addEventListener("pointercancel", end); }
 })();
 addEventListener("keydown", e => {
-  if (e.key === "Escape") { if ($("#tokenPop").dataset.open === "true") toggleToken(false); else if (SELECTED) select(null); }
+  if (e.key === "Escape") { if ($("#tokenPop").dataset.open === "true") toggleToken(false); else if (SELECTED || GUIDE || TOUR || LOCK) select(null); }
+  if (TOUR && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) {
+    if (e.key === "ArrowRight" && TOUR.i < TOUR.steps.length - 1) { e.preventDefault(); TOUR.i++; renderTour(); }
+    if (e.key === "ArrowLeft" && TOUR.i > 0) { e.preventDefault(); TOUR.i--; renderTour(); }
+  }
   if (e.key === "/" && document.activeElement?.tagName !== "INPUT") { e.preventDefault(); $("#repoInput").focus(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#repoInput").focus(); $("#repoInput").select(); }
   const typing = /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "");
@@ -477,22 +499,27 @@ addEventListener("keydown", e => {
 });
 
 function select(id) {
-  SELECTED = id; highlight(id);
-  if (!id) { closePanel(); return; }
+  SELECTED = id; LOCK = false; TOUR = null; highlight(id);
+  if (!id) { GUIDE = false; closePanel(); return; }
   const ast = currentAst();
   const an = ast.nodes.find(n => n.id === id); if (!an) return;
   const head = $("#panelHead"), body = $("#panelBody"); head.textContent = ""; body.textContent = "";
   panelEl.style.setProperty("--c", `var(--c-${an.cat})`);
   head.append(el("span", { class: "ico" }, catIcon(an.cat)),
     el("div", { class: "t" }, el("h2", {}, an.label), el("span", { class: "pill" }, el("i"), CATS[an.cat].label)),
-    el("button", { class: "close", type: "button", "aria-label": "Close", onclick: () => select(null) }, svgUse("i-x")));
+    closeBtn());
+  if (GUIDE) body.append(el("button", { class: "backlink", type: "button", onclick: openGuide }, "← Architecture guide"));
+  const info = MODE === "heur" ? EXPLAIN?.nodeInfo.get(id) : null;
+  if (info) {
+    body.append(el("p", { class: "desc role" }, info.role));
+    if (info.doc) body.append(el("blockquote", { class: "quote" }, el("span", {}, info.doc.d), el("cite", {}, "— comment in " + basename(info.doc.file))));
+    if (info.exports.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Defines"), el("div", { class: "chips" }, ...info.exports.map(x => el("span", { class: "chip mono" }, x)))));
+  }
 
   const files = MODE === "heur" ? (heurNode(id)?.files || []) : (an.path ? A.files.filter(f => f.path === an.path || f.path.startsWith(an.path.replace(/\/$/, "") + "/")) : []);
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
   if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Part of"), el("div", { class: "rows" },
     el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Folder"), el("span", { class: "ar" }, "→")))));
-  if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "External service"}, detected from package imports. The arrows show which components use the service directly.`));
-  if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Entry point of the UI. The arrow points to the component that holds the entry file (e.g. main.ts or App.tsx)."));
   /* Kennzahlen */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
@@ -547,6 +574,104 @@ function centerOn(id) {
   const cx = parseFloat(c.style.left) + c.offsetWidth / 2, cy = parseFloat(c.style.top) + c.offsetHeight / 2;
   const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
   view.x.to(free / 2 - cx * s); view.y.to(st.clientHeight / 2 - cy * s);
+}
+
+/* ============ Architektur-Guide & Tour (ohne KI: aus Code und Doku abgeleitet) ============ */
+let EXPLAIN = null, GUIDE = false, TOUR = null, LOCK = false;
+const nodeOf = id => currentAst().nodes.find(n => n.id === id);
+const closeBtn = () => el("button", { class: "close", type: "button", "aria-label": "Close", onclick: () => select(null) }, svgUse("i-x"));
+
+function highlightPath(ids) {
+  const set = new Set(ids), pairs = new Set(ids.slice(1).map((id, i) => ids[i] + ">" + id));
+  $("#canvas").classList.remove("preview");
+  CARD_ELS.forEach((c, id) => { c.classList.toggle("sel", set.has(id)); c.classList.toggle("dim", !set.has(id)); });
+  GROUP_ELS.forEach(g => g.el.classList.add("dim"));
+  EDGE_ELS.forEach(({ e, base, flow, label }) => {
+    const hot = pairs.has(e.from + ">" + e.to);
+    for (const x of [base, flow]) { x.classList.toggle("hot", hot); x.classList.toggle("dim", !hot); }
+    base.setAttribute("marker-end", hot ? "url(#arrHot)" : "url(#arr)");
+    if (label) { label.classList.toggle("hot", hot); label.classList.toggle("dim", !hot); }
+  });
+}
+/* Kamera auf eine Gruppe von Karten ausrichten (Platz für das Panel lassen) */
+function focusNodes(ids) {
+  const st = $("#stage"), cs = ids.map(id => CARD_ELS.get(id)).filter(Boolean); if (!cs.length) return;
+  const x0 = Math.min(...cs.map(c => parseFloat(c.style.left))), y0 = Math.min(...cs.map(c => parseFloat(c.style.top)));
+  const x1 = Math.max(...cs.map(c => parseFloat(c.style.left) + c.offsetWidth)), y1 = Math.max(...cs.map(c => parseFloat(c.style.top) + c.offsetHeight));
+  const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 30 : 0), fh = st.clientHeight;
+  const s = Math.min(1, Math.max(0.35, Math.min((free - 80) / Math.max(1, x1 - x0), (fh - 170) / Math.max(1, y1 - y0))));
+  view.s.to(s); view.x.to(free / 2 - (x0 + x1) / 2 * s); view.y.to(fh / 2 - (y0 + y1) / 2 * s + 24);
+}
+function showPath(path) { LOCK = true; SELECTED = null; highlightPath(path); focusNodes(path); }
+
+function pathChips(path) {
+  return el("span", { class: "fp" }, ...path.flatMap((id, i) => { const n = nodeOf(id); return [i ? el("span", { class: "arr" }, "→") : null, el("span", { class: "fn", style: `--c:var(--c-${n?.cat || "core"})` }, n?.label || id)]; }));
+}
+function renderBlocks(blocks) {
+  const out = []; let ul = null;
+  for (const b of blocks) {
+    if (b.t === "li") { if (!ul) { ul = el("ul", { class: "md" }); out.push(ul); } ul.append(el("li", {}, b.s)); }
+    else { ul = null; out.push(el("p", {}, b.s)); }
+  }
+  return out;
+}
+function openGuide() {
+  if (!EXPLAIN) return;
+  if (TAB !== "arch") switchTab("arch");
+  GUIDE = true; TOUR = null; LOCK = false; SELECTED = null; highlight(null);
+  const head = $("#panelHead"), body = $("#panelBody"); head.textContent = ""; body.textContent = "";
+  panelEl.style.setProperty("--c", "var(--accent)");
+  head.append(el("span", { class: "ico" }, svgUse("i-book")), el("div", { class: "t" }, el("h2", {}, "Architecture guide"), el("span", { class: "pill" }, el("i"), "Derived from code & docs")), closeBtn());
+
+  body.append(el("div", { class: "sec g-sum" }, ...EXPLAIN.summary.map(t => el("p", {}, t))));
+  if (EXPLAIN.tour.length > 1) body.append(el("button", { class: "btn primary tourbtn", type: "button", onclick: () => startTour(0) }, svgUse("i-play"), `Take the tour · ${EXPLAIN.tour.length} stops`));
+
+  if (EXPLAIN.flows.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Main flows"),
+    ...EXPLAIN.flows.map(f => el("button", { class: "gflow", type: "button", onclick: () => showPath(f.path) }, el("span", { class: "fh" }, f.title), pathChips(f.path), el("span", { class: "fx" }, f.text)))));
+
+  body.append(el("div", { class: "sec" }, el("h4", {}, "Layers"), ...EXPLAIN.layers.map(l => el("div", { class: "layer" },
+    el("div", { class: "lh" }, el("b", {}, l.title), el("span", { class: "muted" }, `${l.nodes.length}`)), el("p", {}, l.desc),
+    el("div", { class: "lchips" }, ...l.nodes.map(id => { const n = nodeOf(id); return el("button", { class: "lchip", type: "button", style: `--c:var(--c-${n?.cat || "core"})`, onclick: () => { select(id); centerOn(id); } }, el("i"), n?.label || id); }))))));
+
+  if (EXPLAIN.start.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Where to start reading"), el("ol", { class: "start" },
+    ...EXPLAIN.start.map(s => { const u = repoUrl(s.path, false); return el("li", {},
+      el("button", { class: "sname", type: "button", onclick: () => { select(s.id); centerOn(s.id); } }, nodeOf(s.id)?.label || s.path),
+      u ? el("a", { class: "spath mono", href: u, target: "_blank", rel: "noopener" }, s.path) : el("span", { class: "spath mono" }, s.path),
+      el("span", { class: "swhy" }, s.why)); }))));
+
+  const docSec = el("div", { class: "sec" }, el("h4", {}, "What the authors say"));
+  if (EXPLAIN.docs.length) for (const d of EXPLAIN.docs) {
+    docSec.append(el("div", { class: "doc" },
+      el("div", { class: "dh" }, el("b", {}, d.title), d.url ? el("a", { href: d.url, target: "_blank", rel: "noopener" }, d.source, svgUse("i-ext")) : el("span", { class: "muted" }, d.source)),
+      ...renderBlocks(d.blocks),
+      d.rels.length ? el("div", { class: "rels" }, el("span", { class: "muted" }, "Diagram by the authors"), ...d.rels.map(r => el("div", { class: "rel" + (r.dotted ? " dotted" : "") }, el("span", {}, r.a), el("span", { class: "arr" }, "→"), el("span", {}, r.b), r.label ? el("em", {}, r.label) : null))) : null));
+  } else docSec.append(el("p", { class: "empty-note" }, "No architecture section found. Add an “Architecture” or “How it's built” section to the README, or a docs/architecture.md, and it will show up here."));
+  body.append(docSec);
+  openPanel();
+}
+
+function startTour(i) { if (!EXPLAIN?.tour.length) return; TOUR = { i, steps: EXPLAIN.tour }; renderTour(); }
+function renderTour() {
+  const { i, steps } = TOUR, id = steps[i], n = nodeOf(id), info = EXPLAIN.nodeInfo.get(id);
+  if (!n) return;
+  LOCK = true; SELECTED = null; highlight(id); centerOn(id);
+  const head = $("#panelHead"), body = $("#panelBody"); head.textContent = ""; body.textContent = "";
+  panelEl.style.setProperty("--c", `var(--c-${n.cat})`);
+  head.append(el("span", { class: "ico" }, n.file ? svgUse("i-file") : catIcon(n.cat)), el("div", { class: "t" }, el("h2", {}, n.label), el("span", { class: "pill" }, el("i"), `Tour · stop ${i + 1} of ${steps.length}`)), closeBtn());
+  body.append(el("div", { class: "dots" }, ...steps.map((s, k) => el("button", { class: "dot" + (k === i ? " on" : k < i ? " done" : ""), type: "button", "aria-label": `Stop ${k + 1}: ${nodeOf(s)?.label}`, onclick: () => { TOUR.i = k; renderTour(); } }))));
+  if (info) {
+    body.append(el("p", { class: "desc role big" }, info.role));
+    if (info.doc) body.append(el("blockquote", { class: "quote" }, el("span", {}, info.doc.d), el("cite", {}, "— comment in " + basename(info.doc.file))));
+    if (info.exports.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Defines"), el("div", { class: "chips" }, ...info.exports.map(x => el("span", { class: "chip mono" }, x)))));
+  }
+  const outE = currentAst().edges.filter(e => e.from === id).slice(0, 5);
+  if (outE.length) body.append(el("div", { class: "sec" }, el("h4", {}, "Next it"), el("div", { class: "rows" }, ...outE.map(e => el("div", { class: "r" }, el("span", { class: "d", style: `background:var(--c-${nodeOf(e.to)?.cat})` }), el("span", { class: "n" }, `${e.label || "uses"} ${nodeOf(e.to)?.label || ""}`))))));
+  body.append(el("div", { class: "tournav" },
+    el("button", { class: "btn", type: "button", disabled: i === 0 ? "" : null, onclick: () => { TOUR.i--; renderTour(); } }, "← Back"),
+    el("button", { class: "btn ghostlink", type: "button", onclick: () => { const keep = id; TOUR = null; select(keep); } }, "Details"),
+    i < steps.length - 1 ? el("button", { class: "btn primary", type: "button", onclick: () => { TOUR.i++; renderTour(); } }, "Next →") : el("button", { class: "btn primary", type: "button", onclick: () => openGuide() }, "Finish")));
+  body.append(el("p", { class: "hint" }, "Use ← and → to move through the tour, Esc to end it."));
+  openPanel();
 }
 
 /* ============ Treemap ============ */
@@ -719,6 +844,8 @@ function setMode(m) {
   MODE = m; $("#modeHeur")?.setAttribute("aria-pressed", m === "heur"); $("#modeAi")?.setAttribute("aria-pressed", m === "ai"); knobMode();
   SELECTED = null; closePanel(); renderCanvas();
 }
+$("#guideBtn").onclick = () => GUIDE && !TOUR ? select(null) : openGuide();
+$("#explainBtn").onclick = () => openGuide();
 $("#sideBtn").onclick = () => { SHOW_SIDE = !SHOW_SIDE; renderCanvas(); };
 const setDir = m => { DIR_MODE = m; if (m !== "auto") DIR = m; renderCanvas(); };
 $("#dirAuto").onclick = () => setDir("auto"); $("#dirTD").onclick = () => setDir("TD"); $("#dirLR").onclick = () => setDir("LR");
@@ -750,7 +877,7 @@ function toast(text) { logStart(text); $("#logBody").append(el("div", { class: "
 
 /* ============ Alles anzeigen ============ */
 function show(data) {
-  DATA = data; A = analyze(data); AI = null; SELECTED = null; tmRoot = ""; openDirs = new Set();
+  DATA = data; A = analyze(data); AI = null; EXPLAIN = explainArchitecture(A, data); GUIDE = false; TOUR = null; LOCK = false; SELECTED = null; tmRoot = ""; openDirs = new Set();
   MODE = "heur";
   panelX.set(1); panelEl.dataset.state = "closed";
   EXT.onShow.forEach(f => f());

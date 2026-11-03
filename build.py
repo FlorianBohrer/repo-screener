@@ -10,7 +10,7 @@ root = pathlib.Path(__file__).parent
 src = root / "src"
 head = (src / "ui-head.html").read_text(encoding="utf-8")
 sample = json.dumps(json.loads((src / "sample.json").read_text(encoding="utf-8")), separators=(",", ":")).replace("</", "<\\/")
-code = (src / "core.js").read_text(encoding="utf-8") + "\n" + (src / "ui.js").read_text(encoding="utf-8")
+code = "\n".join((src / f).read_text(encoding="utf-8") for f in ("core.js", "explain.js", "ui.js"))
 libs = ('<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>\n'
         '<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>\n')
 
@@ -36,7 +36,7 @@ site = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
 
 ext_dir = src / "ext"
 exts = sorted(ext_dir.glob("*.js")) if ext_dir.exists() else []
-if exts:
+if ext_dir.exists():
     pre = "".join(p.read_text(encoding="utf-8") for p in sorted(ext_dir.glob("*.html")))
     (root / "artifact.html").write_text(pre + page("\n".join(p.read_text(encoding="utf-8") for p in exts)), encoding="utf-8")
 print("ok", len(site), "erweiterungen:", len(exts))
