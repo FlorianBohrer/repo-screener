@@ -291,9 +291,9 @@ function renderCanvas({ animate = true } = {}) {
       card = el("div", { class: "card chip", style: `--c:var(--c-${n.cat});${at}`, title: n.path || n.label }, el("span", { class: "ico" }, catIcon(n.cat)), el("span", { class: "nm" }, n.label), MODE === "heur" && n.count ? el("span", { class: "cnt" }, fmtInt(n.count)) : null);
     } else {
       const sub = MODE === "ai" ? (n.path ? basename(n.path) || n.path : "externer Dienst") : isExt ? `${n.main || "Dienst"} · extern` : (n.main || n.path || "/");
-      const cnt = MODE === "heur" && !isExt ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
-      card = el("div", { class: "card" + (isExt ? " ext" : ""), style: `--c:var(--c-${n.cat});${at}` },
-        el("span", { class: "ico" }, catIcon(n.cat)),
+      const cnt = MODE === "heur" && !isExt && !n.file ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
+      card = el("div", { class: "card" + (isExt ? " ext" : "") + (n.file ? " file" : ""), style: `--c:var(--c-${n.cat});${at}`, title: n.file && n.parentLabel ? `Datei aus ${n.parentLabel}` : "" },
+        el("span", { class: "ico" }, n.file ? svgUse("i-file") : catIcon(n.cat)),
         el("div", { class: "tx" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub)),
         cnt ? el("span", { class: "cnt", title: `${cnt} Dateien` }, fmtInt(cnt)) : null);
     }
@@ -441,6 +441,8 @@ function select(id) {
 
   const files = MODE === "heur" ? (heurNode(id)?.files || []) : (an.path ? A.files.filter(f => f.path === an.path || f.path.startsWith(an.path.replace(/\/$/, "") + "/")) : []);
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
+  if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Teil von"), el("div", { class: "rows" },
+    el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Ordner"), el("span", { class: "ar" }, "→")))));
   if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "Externer Dienst"}, erkannt über Paket-Importe. Die Pfeile zeigen, welche Bausteine den Dienst direkt einbinden.`));
   if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Einstiegspunkt der Oberfläche. Der Pfeil zeigt auf den Baustein mit der Einstiegsdatei (z. B. main.ts oder App.tsx)."));
   /* Kennzahlen */

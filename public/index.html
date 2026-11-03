@@ -154,6 +154,8 @@ kbd{font-family:var(--font);font-size:11px;color:var(--text-3);border:1px solid 
 .card.dim,.grp.dim{opacity:.32}
 .card.ext{border-style:dashed;border-color:color-mix(in srgb,var(--c) 50%,transparent);background:color-mix(in srgb,var(--c) 6%,var(--surface))}
 .card.ext .pth{font-family:var(--font)}
+.card.file{border-left:3px solid color-mix(in srgb,var(--c) 55%,transparent);padding-left:8px}
+.card.file .ico{border-radius:7px}
 .card.user{width:118px;height:40px;padding:0 14px 0 5px;border-radius:99px;gap:8px;border-color:color-mix(in srgb,var(--c) 45%,transparent)}
 .card.chip{width:184px;height:34px;padding:0 8px 0 5px;gap:8px;border-radius:9px;box-shadow:none;background:color-mix(in srgb,var(--surface) 70%,transparent)}
 .card.chip .ico{width:24px;height:24px;border-radius:6px}
@@ -655,6 +657,7 @@ function resolveImport(from, spec, fileSet, aliasRoot) {
 }
 
 /* ============ Analyse ============ */
+const ENTRY_FILE = /(^|\/)(main\.(t|j)sx?|index\.(t|j)sx?|app\.(t|j)sx?|App\.(t|j)sx?|app\.component\.ts|page\.(t|j)sx?|layout\.(t|j)sx?|main\.py|app\.py|manage\.py|server\.(t|j)s|index\.html|main\.go|main\.rs)$/;
 function analyze(data) {
   const files = data.files.map(([path, size]) => ({ path, size }));
   const fileSet = new Set(files.map(f => f.path));
@@ -712,11 +715,49 @@ function analyze(data) {
   const INFRA_DOT = /^\.(github|gitlab|circleci|githooks|devcontainer|husky)$/;
   const foldIntoRoot = k => k !== "/*" && !k.includes("/") && k.startsWith(".") && !INFRA_DOT.test(k) && !codeIn.get(k);
   for (const f of files) { let k = compOf(f.path); if (foldIntoRoot(k)) k = "/*"; if (!compMap.has(k)) compMap.set(k, { key: k, files: [], bytes: 0 }); const o = compMap.get(k); o.files.push(f); o.bytes += f.size; fileComp.set(f.path, k); }
+  const aliasRoot = fileSet.has("tsconfig.json") && files.some(f => f.path.startsWith("src/")) ? "src" : "";
+
+  /* Zentrale Dateien als eigene Knoten (z. B. todo.ts, toast.service.ts, plan.model.ts):
+     Service-, Store- oder Model-Dateien, die von vielen anderen Dateien – vor allem aus anderen Bausteinen – importiert werden. */
+  const importers = new Map();
+  for (const [from, specs] of Object.entries(data.imports || {})) {
+    if (!fileSet.has(from) || isTest(from)) continue;
+    for (const sp of specs) {
+      if (sp.startsWith("pkg:") || sp.startsWith("url:")) continue;
+      const to = resolveImport(from, sp, fileSet, aliasRoot); if (!to || to === from) continue;
+      if (!importers.has(to)) importers.set(to, new Set()); importers.get(to).add(from);
+    }
+  }
+  const SERVICE_FILE = /\.(service|store|model|api|client|repository|repo|context|provider|gateway|facade|state)\.(m?[jt]sx?|py)$|^use[A-Z]\w*\.(t|j)sx?$|_(service|repository|client|store)\.py$/;
+  const SERVICE_DIR = /^(services?|stores?|state|api|lib|core|data|repositories|models?|hooks|providers|context|clients?|domain)$/i;
+  const promoted = [];
+  for (const [path, from] of importers) {
+    const comp = fileComp.get(path); if (!comp || comp === "/*" || !isSrc(path) || ENTRY_FILE.test(path)) continue;
+    const named = SERVICE_FILE.test(basename(path)) || SERVICE_DIR.test(basename(dirname(path)));
+    if (!named) continue;
+    const cross = [...from].filter(f => fileComp.get(f) !== comp).length;
+    const size = files.find(f => f.path === path)?.size || 0;
+    if ((cross < 2 && from.size < 4) || size < 1500) continue;
+    promoted.push({ path, comp, score: cross * 2 + from.size + Math.min(4, size / 8000), cross });
+  }
+  const codeComps0 = [...compMap.values()].filter(c => c.files.some(f => isSrc(f.path))).length;
+  const BUDGET = Math.max(2, Math.min(7, Math.round(codeComps0 * 0.45)));
+  const perComp = new Map(); let taken = 0;
+  for (const c of promoted.sort((a, b) => b.score - a.score)) {
+    if (taken >= BUDGET) break;
+    const host = compMap.get(c.comp); const srcLeft = host.files.filter(f => isSrc(f.path) && f.path !== c.path).length;
+    if (srcLeft < 2 || (perComp.get(c.comp) || 0) >= 2) continue; /* der Ordner muss noch etwas Eigenes behalten */
+    const f = host.files.find(x => x.path === c.path);
+    host.files = host.files.filter(x => x !== f); host.bytes -= f.size;
+    const key = "f:" + c.path;
+    compMap.set(key, { key, files: [f], bytes: f.size, parentKey: c.comp });
+    fileComp.set(c.path, key); perComp.set(c.comp, (perComp.get(c.comp) || 0) + 1); taken++;
+  }
 
   /* Namen: generische Ordnernamen bekommen ihren Fachbereich dazu ("todo/services" → "Todo Services") */
   const GENERIC = /^(components?|services?|shared|common|models?|utils?|helpers|lib|libs|hooks|store|stores|state|types|api|routes?|controllers?|views?|pages|core|data|features|modules|ui|widgets|handlers?|middleware|schemas?|entities|interfaces|directives|pipes|guards|interceptors|providers|config|constants|assets)$/i;
   const human = s => s.replace(/[-_.]+/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
-  const ENTRY = /(^|\/)(main\.(t|j)sx?|index\.(t|j)sx?|app\.(t|j)sx?|App\.(t|j)sx?|app\.component\.ts|page\.(t|j)sx?|layout\.(t|j)sx?|main\.py|app\.py|manage\.py|server\.(t|j)s|index\.html|main\.go|main\.rs)$/;
+  const ENTRY = ENTRY_FILE;
   const mainFile = fs => {
     const src = fs.filter(f => isSrc(f.path)); if (!src.length) return null;
     const roots = new Set(src.map(f => dirname(f.path)).sort((x, y) => x.length - y.length).slice(0, 1));
@@ -727,14 +768,28 @@ function analyze(data) {
   };
   const STRIP = /^(src|app|lib|source|frontend|client|main|java|kotlin)$/i;
   const domainOf = real => { const segs = real.split("/").filter(Boolean); let i = 0; while (i < segs.length - 1 && STRIP.test(segs[i])) i++; return segs.length ? segs[i] : ""; };
-  const aliasRoot = fileSet.has("tsconfig.json") && files.some(f => f.path.startsWith("src/")) ? "src" : "";
+  const FILE_KIND = { service: "Service", store: "Store", model: "Model", api: "API", client: "Client", repository: "Repository", repo: "Repository", context: "Context", provider: "Provider", gateway: "Gateway", facade: "Facade", state: "State" };
+  const DIR_KIND = { services: "Service", service: "Service", stores: "Store", store: "Store", state: "State", api: "API", models: "Model", model: "Model", repositories: "Repository", clients: "Client", client: "Client" };
+  const fileLabel = path => {
+    const b = basename(path).replace(/\.(m?[jt]sx?|py)$/, "");
+    if (/^use[A-Z]/.test(b)) return b;
+    if (/^use[-_]/.test(b)) return "use" + b.slice(4).replace(/(^|[-_])(\w)/g, (_, __, ch) => ch.toUpperCase());
+    const m = b.match(/^(.*?)[._-](service|store|model|api|client|repository|repo|context|provider|gateway|facade|state)$/i);
+    if (m) return human(m[1]) + " " + FILE_KIND[m[2].toLowerCase()];
+    const dk = DIR_KIND[basename(dirname(path)).toLowerCase()];
+    return human(b) + (dk ? " " + dk : "");
+  };
   let nodes = [...compMap.values()].map((c, i) => {
+    if (c.key.startsWith("f:")) {
+      const path = c.key.slice(2);
+      return { id: "n" + i, key: c.key, path, label: fileLabel(path), cat: /[._-]model\.|[._-]types?\.|(^|\/)models?\//.test(path) ? "core" : categorize(dirname(path)) === "frontend" && SERVICE_FILE.test(basename(path)) ? "backend" : categorize(dirname(path)), files: c.files, bytes: c.bytes, main: basename(path), code: 1, isDir: false, domain: domainOf(path), kind: "comp", file: true, parentKey: c.parentKey };
+    }
     const real = c.key === "/*" ? "" : c.key.endsWith("/*") ? c.key.slice(0, -2) : c.key;
     const base = basename(real), parent = basename(dirname(real));
     const mf = mainFile(c.files);
     let label;
     if (c.key === "/*") label = "Projektwurzel";
-    else if (c.key.endsWith("/*")) label = mf && ENTRY.test(mf.path) ? (/(^|\/)(app|App)\./.test(mf.path) ? "App-Shell" : "Einstieg") : mf ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : human(base) + " (Dateien)";
+    else if (c.key.endsWith("/*")) label = mf && ENTRY.test(mf.path) ? (/(^|\/)(app|App)\./.test(mf.path) ? "App-Shell" : "Einstieg") : mf && /\.(config|routes?)\./.test(mf.path) ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : STRIP.test(base) && mf ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : human(base) + (GENERIC.test(base) ? "" : " Logik");
     else if (GENERIC.test(base) && parent && !STRIP.test(parent)) label = human(parent) + " " + human(base);
     else label = human(base);
     const testShare = c.files.filter(f => isTest(f.path)).length / Math.max(1, c.files.length);
@@ -761,6 +816,7 @@ function analyze(data) {
   const domCount = new Map(); nodes.forEach(n => { if (n.domain && n.code) domCount.set(n.domain, (domCount.get(n.domain) || 0) + 1); });
   nodes.forEach(n => { n.group = n.domain && domCount.get(n.domain) >= 2 && n.code ? human(n.domain) : CATS[n.cat].label; });
   const nodeByKey = new Map(nodes.map(n => [n.key, n]));
+  nodes.forEach(n => { if (n.file) { const p = nodeByKey.get(n.parentKey); n.parentId = p?.id; n.parentLabel = p?.label; if (p) n.group = p.group; } });
 
   /* Beziehungen aus Importen */
   const edgeW = new Map(), extUse = new Map(), urlHosts = new Set(); const fileEdges = [];
@@ -829,6 +885,18 @@ function analyze(data) {
   /* Transitive Abkürzungen entfernen: a→c fällt weg, wenn a→b→c existiert und a→c schwach ist */
   const has2 = (x, y) => edges.some(e => e.from === x && e.to === y);
   edges = edges.filter(e => !(e.w <= 2 && edges.some(m => m.from === e.from && m.to !== e.to && has2(m.to, e.to) && m.w >= e.w)));
+  /* Jeder Laufzeit-Baustein behält seinen stärksten eingehenden Pfeil – sonst wirkt er wie eine lose Wurzel */
+  nodes.filter(n => n.kind === "comp" && !n.side).forEach(n => {
+    if (edges.some(e => e.to === n.id)) return;
+    const best = internal.filter(e => e.to === n.id).sort((x, y) => y.w - x.w)[0]; if (best) edges.push(best);
+  });
+  /* Konfigurationsziele (environment, config) bekommen höchstens zwei Pfeile */
+  const isCfg = id => /environ|config|settings|constants/i.test(byId.get(id).path);
+  const cfgIn = new Map(); edges.filter(e => isCfg(e.to)).sort((x, y) => y.w - x.w).forEach(e => cfgIn.set(e.to, [...(cfgIn.get(e.to) || []), e]));
+  cfgIn.forEach(list => list.slice(2).forEach(e => { edges = edges.filter(x => x !== e); }));
+  /* Einzel-Importe fallen weg, wenn beide Enden ohnehin verbunden sind */
+  const deg = id => edges.filter(e => e.from === id || e.to === id).length;
+  edges = edges.filter(e => !(e.w === 1 && deg(e.from) > 1 && deg(e.to) > 1 && edges.some(x => x.to === e.to && x !== e)));
   /* Die Shell ist das Rückgrat: alle Ansichten, die sie einbindet, bleiben sichtbar */
   const shellId = allEdges.find(e => e.user)?.to;
   if (shellId) internal.filter(e => e.from === shellId && !edges.includes(e) && byId.get(e.to).cat === "frontend").sort((x, y) => y.w - x.w).slice(0, 8).forEach(e => edges.push(e));
@@ -934,7 +1002,7 @@ function compileMermaid(ast, dir) {
 function heuristicAst(A) {
   const linked = new Set(A.edges.flatMap(e => [e.from, e.to]));
   const nodes = A.nodes.filter(n => n.files.length > 0 || n.kind !== "comp").map(n => ({
-    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main, side: n.side, count: n.files.length,
+    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main, side: n.side, count: n.files.length, file: n.file, parentId: n.parentId, parentLabel: n.parentLabel,
     sub: n.kind === "comp" ? `${fmtInt(n.files.length)} Dateien · ${fmtBytes(n.bytes)}` : "", linked: linked.has(n.id),
   }));
   return { nodes, edges: A.edges.map(e => ({ from: e.from, to: e.to, w: e.w, label: e.verb })) };
@@ -1309,9 +1377,9 @@ function renderCanvas({ animate = true } = {}) {
       card = el("div", { class: "card chip", style: `--c:var(--c-${n.cat});${at}`, title: n.path || n.label }, el("span", { class: "ico" }, catIcon(n.cat)), el("span", { class: "nm" }, n.label), MODE === "heur" && n.count ? el("span", { class: "cnt" }, fmtInt(n.count)) : null);
     } else {
       const sub = MODE === "ai" ? (n.path ? basename(n.path) || n.path : "externer Dienst") : isExt ? `${n.main || "Dienst"} · extern` : (n.main || n.path || "/");
-      const cnt = MODE === "heur" && !isExt ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
-      card = el("div", { class: "card" + (isExt ? " ext" : ""), style: `--c:var(--c-${n.cat});${at}` },
-        el("span", { class: "ico" }, catIcon(n.cat)),
+      const cnt = MODE === "heur" && !isExt && !n.file ? n.count : MODE === "ai" && n.path ? A.files.filter(f => f.path === n.path || f.path.startsWith(n.path + "/")).length : 0;
+      card = el("div", { class: "card" + (isExt ? " ext" : "") + (n.file ? " file" : ""), style: `--c:var(--c-${n.cat});${at}`, title: n.file && n.parentLabel ? `Datei aus ${n.parentLabel}` : "" },
+        el("span", { class: "ico" }, n.file ? svgUse("i-file") : catIcon(n.cat)),
         el("div", { class: "tx" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub)),
         cnt ? el("span", { class: "cnt", title: `${cnt} Dateien` }, fmtInt(cnt)) : null);
     }
@@ -1459,6 +1527,8 @@ function select(id) {
 
   const files = MODE === "heur" ? (heurNode(id)?.files || []) : (an.path ? A.files.filter(f => f.path === an.path || f.path.startsWith(an.path.replace(/\/$/, "") + "/")) : []);
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
+  if (MODE === "heur" && an.file && an.parentId) body.append(el("div", { class: "sec" }, el("h4", {}, "Teil von"), el("div", { class: "rows" },
+    el("button", { class: "r", type: "button", onclick: () => { select(an.parentId); centerOn(an.parentId); } }, el("span", { class: "d", style: `background:var(--c-${ast.nodes.find(x => x.id === an.parentId)?.cat || an.cat})` }), el("span", { class: "n" }, an.parentLabel), el("span", { class: "v" }, "Ordner"), el("span", { class: "ar" }, "→")))));
   if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "Externer Dienst"}, erkannt über Paket-Importe. Die Pfeile zeigen, welche Bausteine den Dienst direkt einbinden.`));
   if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Einstiegspunkt der Oberfläche. Der Pfeil zeigt auf den Baustein mit der Einstiegsdatei (z. B. main.ts oder App.tsx)."));
   /* Kennzahlen */
