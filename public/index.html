@@ -1134,7 +1134,7 @@ function renderCanvas({ animate = true } = {}) {
   graphSize = { w: W, h: H };
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-  /* Gruppenrahmen: nur für Fachbereiche (bzw. Gruppen aus dem Claude-Modus), und nur wenn kein fremder Baustein darin liegt */
+  /* Gruppenrahmen: nur für Fachbereiche (bzw. Gruppen aus einem Erweiterungs-Modus), und nur wenn kein fremder Baustein darin liegt */
   const box = id => { const p = pos.get(id), n = ast.nodes.find(x => x.id === id), d = dim(n); return { x0: p.x - d.w / 2, x1: p.x + d.w / 2, y0: p.y - d.h / 2, y1: p.y + d.h / 2 }; };
   for (const [key, gr] of [...groups]) {
     if (key === "__loose") continue;
