@@ -885,14 +885,103 @@ function show(data) {
   if (TAB !== "arch") switchTab("arch");
   requestAnimationFrame(() => { renderCanvas(); knobMode(false); knobDir(false); moveTabInd(false); });
 }
-$("#loadForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const v = $("#repoInput").value; if (!v.trim()) { $("#repoInput").focus(); return; }
-  const b = $("#loadBtn"); b.disabled = true; b.classList.add("busy");
-  try { const d = await loadGitHub(v); show(d); logFinish(`${d.repo} analyzed`); }
-  catch (err) { if ($("#log").dataset.open !== "true") logStart(); logStep(err.message || String(err), "err"); }
-  finally { b.disabled = false; b.classList.remove("busy"); }
-});
+/* ============ Suchfeld: zugängliche Combobox mit Vorschlägen, Live-Erkennung und Animationen ============ */
+const Search = (() => {
+  const form = $("#loadForm"), input = $("#repoInput"), list = $("#repoList"), msg = $("#repoMsg"), clear = $("#repoClear"), det = $("#repoDetected");
+  const EXAMPLES = ["vercel/next.js", "FlorianBohrer/Todo_App", "ahmedkhaleel2004/gitdiagram", "fastapi/fastapi", "sveltejs/svelte", "supabase/supabase"];
+  const RECENT_KEY = "rs-recent";
+  const recent = () => { try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]").filter(x => typeof x === "string").slice(0, 5); } catch { return []; } };
+  const remember = r => { try { localStorage.setItem(RECENT_KEY, JSON.stringify([r, ...recent().filter(x => x.toLowerCase() !== r.toLowerCase())].slice(0, 5))); } catch {} };
+  let options = [], active = -1;
+
+  const canonical = v => { const p = parseRepo(v); return p && !/\s/.test(v.trim()) ? `${p.owner}/${p.repo}` : null; };
+  const setMsg = (text, bad = true) => { msg.textContent = text; msg.style.color = bad ? "" : "var(--ok)"; msg.classList.toggle("show", !!text); form.setAttribute("aria-invalid", text && bad ? "true" : "false"); };
+  const shake = () => { if (REDUCE.matches) return; form.classList.remove("shake"); void form.offsetWidth; form.classList.add("shake"); };
+  const open = on => { list.dataset.open = on; input.setAttribute("aria-expanded", on); if (!on) { active = -1; input.removeAttribute("aria-activedescendant"); } };
+
+  const highlightMatch = (text, q) => {
+    const span = el("span", { class: "o-name" }), i = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+    if (i < 0) span.textContent = text; else span.append(text.slice(0, i), el("mark", {}, text.slice(i, i + q.length)), text.slice(i + q.length));
+    return span;
+  };
+  function render() {
+    const raw = input.value.trim(), q = (canonical(raw) || raw).toLowerCase();
+    const rec = recent(), seen = new Set();
+    const pick = (arr, kind) => arr.filter(r => !seen.has(r.toLowerCase()) && (!q || r.toLowerCase().includes(q))).map(r => { seen.add(r.toLowerCase()); return { r, kind }; });
+    const groups = [["Recent", pick(rec, "recent")], ["Examples", pick(EXAMPLES, "example")]];
+    const typed = canonical(raw);
+    if (typed && !seen.has(typed.toLowerCase())) groups.unshift(["Analyze", [{ r: typed, kind: "typed" }]]);
+    list.textContent = ""; options = [];
+    let k = 0;
+    for (const [title, items] of groups) {
+      if (!items.length) continue;
+      const gid = "repoGrp" + title;
+      list.append(el("li", { class: "grp-h", role: "presentation", id: gid }, title));
+      for (const it of items) {
+        const id = "repoOpt" + options.length;
+        const li = el("li", { role: "option", id, "aria-selected": "false", style: `animation-delay:${Math.min(8, k++) * 22}ms` },
+          svgUse(it.kind === "recent" ? "i-clock" : it.kind === "typed" ? "i-search" : "i-repo"), highlightMatch(it.r, q),
+          el("span", { class: "o-meta" }, it.kind === "recent" ? "recent" : it.kind === "typed" ? "analyze" : "example"));
+        li.addEventListener("pointerdown", e => { e.preventDefault(); choose(it.r); });
+        li.addEventListener("pointermove", () => setActive(options.findIndex(o => o.li === li), false));
+        list.append(li); options.push({ li, r: it.r });
+      }
+    }
+    if (!options.length) list.append(el("li", { class: "o-empty", role: "presentation" }, raw ? "Press Enter to analyze" : "Type owner/repo or paste a GitHub URL"));
+    if (active >= options.length) active = options.length - 1;
+    setActive(active, false);
+  }
+  function setActive(i, scroll = true) {
+    active = i;
+    options.forEach((o, j) => o.li.setAttribute("aria-selected", j === i ? "true" : "false"));
+    if (i >= 0 && options[i]) { input.setAttribute("aria-activedescendant", options[i].li.id); if (scroll) options[i].li.scrollIntoView({ block: "nearest" }); }
+    else input.removeAttribute("aria-activedescendant");
+  }
+  function sync() {
+    const v = input.value, has = v.trim().length > 0, c = canonical(v);
+    form.classList.toggle("has-value", has); clear.hidden = !has;
+    /* eine eingefügte URL wird sichtbar als owner/repo erkannt */
+    const showDet = !!c && c !== v.trim();
+    if (showDet && det.textContent !== "→ " + c) { det.textContent = "→ " + c; det.hidden = false; det.style.animation = "none"; void det.offsetWidth; det.style.animation = ""; }
+    if (!showDet) det.hidden = true;
+    if (form.getAttribute("aria-invalid") === "true" && (c || !has)) setMsg("");
+  }
+  function choose(r) { input.value = r; sync(); open(false); form.requestSubmit(); }
+  async function submit(e) {
+    e.preventDefault();
+    if (active >= 0 && options[active] && list.dataset.open === "true") { const r = options[active].r; input.value = r; }
+    const c = canonical(input.value);
+    if (!c) { setMsg(input.value.trim() ? "Use owner/repo or a GitHub URL, e.g. vercel/next.js" : "Enter a repository to analyze"); shake(); input.focus(); return; }
+    setMsg(""); open(false);
+    const b = $("#loadBtn"); b.disabled = true; b.classList.add("busy"); form.setAttribute("aria-busy", "true"); input.setAttribute("aria-busy", "true");
+    try { const d = await loadGitHub(input.value); remember(d.repo); show(d); logFinish(`${d.repo} analyzed`); input.value = d.repo; sync(); input.blur(); }
+    catch (err) { if ($("#log").dataset.open !== "true") logStart(); logStep(err.message || String(err), "err"); setMsg(err.message || "Analysis failed"); shake(); }
+    finally { b.disabled = false; b.classList.remove("busy"); form.removeAttribute("aria-busy"); input.removeAttribute("aria-busy"); }
+  }
+  input.addEventListener("focus", () => { render(); open(true); });
+  input.addEventListener("blur", () => setTimeout(() => open(false), 120));
+  input.addEventListener("input", () => { sync(); active = -1; render(); open(true); });
+  input.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown") { e.preventDefault(); if (list.dataset.open !== "true") { render(); open(true); } setActive(Math.min(options.length - 1, active + 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(Math.max(-1, active - 1)); }
+    else if (e.key === "Escape") { if (list.dataset.open === "true") { e.stopPropagation(); open(false); } else if (input.value) { e.stopPropagation(); input.value = ""; sync(); setMsg(""); } else input.blur(); }
+    else if (e.key === "Tab") open(false);
+  });
+  clear.addEventListener("click", () => { input.value = ""; sync(); setMsg(""); render(); open(true); input.focus(); });
+  form.addEventListener("submit", submit);
+
+  /* rollender Platzhalter: wechselt alle 2,8 s das Beispiel (nicht bei reduzierter Bewegung, nicht während der Eingabe) */
+  const roll = $("#repoPh .ph-roll"); let ex = 0;
+  setInterval(() => {
+    if (REDUCE.matches || document.hidden || form.classList.contains("has-value")) return;
+    const cur = roll.querySelector(".ph-item.on"); ex = (ex + 1) % EXAMPLES.length;
+    const next = el("span", { class: "ph-item" }, EXAMPLES[ex]); roll.append(next);
+    requestAnimationFrame(() => { cur?.classList.replace("on", "out"); next.classList.add("on"); });
+    setTimeout(() => cur?.remove(), 600);
+  }, 2800);
+  sync();
+  return { sync };
+})();
 $("#dirInput").addEventListener("change", async e => {
   try { const d = await loadLocal(e.target.files); show(d); logFinish(`“${d.repo}” analyzed`); } catch (err) { logStart(); logStep(err.message || String(err), "err"); }
   e.target.value = "";
@@ -906,5 +995,5 @@ if (document.fonts?.ready) document.fonts.ready.then(() => { moveTabInd(false); 
 /* ============ Start ============ */
 const SAMPLE = (() => { try { const s = JSON.parse(document.getElementById("sample-data").textContent); s.source = "sample"; s.description = "Turns a GitHub repository into an interactive architecture diagram."; return s; } catch { return null; } })();
 const qp = new URLSearchParams(location.search).get("repo");
-if (qp) { $("#repoInput").value = qp; $("#loadForm").requestSubmit(); }
+if (qp) { $("#repoInput").value = qp; Search.sync(); $("#loadForm").requestSubmit(); }
 else if (SAMPLE) show(SAMPLE);

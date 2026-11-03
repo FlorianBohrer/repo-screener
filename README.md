@@ -44,6 +44,9 @@ Also:
 | Tour | “Take the tour”, then ← / → |
 | Close the panel | ✕, `Esc` or swipe it to the right |
 | Focus the search | `/` or ⌘/Ctrl + K |
+| Pick a suggestion | ↑ / ↓, Enter; Esc closes the list, a second Esc clears the field |
+
+The search field is an accessible combobox: it suggests recently analyzed repos (stored only in your browser) and examples, recognizes pasted GitHub URLs as `owner/repo`, and validates the input inline with a message read out by screen readers.
 
 Add `?repo=owner/repo` to the URL to analyze a repo directly.
 
