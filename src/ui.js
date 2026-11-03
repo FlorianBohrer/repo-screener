@@ -72,12 +72,13 @@ function renderHeader() {
   $("#repoDesc").textContent = DATA.description || firstSentence(DATA.readme) || "";
   const k = $("#kpis"); k.textContent = "";
   const kpi = (v, l, cls) => el("div", { class: "kpi " + (cls || "") }, el("b", {}, v), el("span", {}, l));
-  k.append(kpi(fmtInt(A.files.length), "Dateien"), kpi(fmtInt(A.nodes.length), "Komponenten"), kpi(fmtInt(A.resolved), "Importe", "opt"), kpi(fmtBytes(A.total), "Größe", "opt"), kpi(A.score, "Score"));
-  $("#bArch").textContent = A.nodes.length; $("#bFiles").textContent = fmtInt(A.files.length); $("#bScore").textContent = A.score;
+  k.append(kpi(fmtInt(A.files.length), "Dateien"), kpi(fmtInt(A.compCount), "Bausteine"), kpi(fmtInt(A.resolved), "Importe", "opt"), kpi(fmtBytes(A.total), "Größe", "opt"), kpi(A.score, "Score"));
+  $("#bArch").textContent = A.compCount; $("#bFiles").textContent = fmtInt(A.files.length); $("#bScore").textContent = A.score;
 }
 
 /* ============ Arbeitsfläche: Layout, Karten, Kanten ============ */
 const CARD_W = 232, CARD_H = 94;
+const dim = n => n.kind === "user" ? { w: 124, h: 44 } : { w: CARD_W, h: CARD_H };
 const view = { s: spring(1, { eps: 0.0005 }), x: spring(0, { eps: 0.2 }), y: spring(0, { eps: 0.2 }) };
 let viewRaf = 0;
 const applyView = () => { if (viewRaf) return; viewRaf = requestAnimationFrame(() => { viewRaf = 0; $("#canvas").style.transform = `translate(${view.x.value}px,${view.y.value}px) scale(${view.s.value})`; }); };
@@ -107,18 +108,30 @@ function renderCanvas({ animate = true } = {}) {
   /* Layout: verbundene Komponenten mit dagre (Gruppen als Cluster), unverbundene kompakt als Raster darunter */
   const linkedIds = new Set(ast.edges.flatMap(e => [e.from, e.to]));
   const linked = ast.nodes.filter(n => linkedIds.has(n.id)), loose = ast.nodes.filter(n => !linkedIds.has(n.id));
-  const g = new dagre.graphlib.Graph({ compound: true });
-  g.setGraph({ rankdir: DIR === "TD" ? "TB" : "LR", nodesep: 34, ranksep: DIR === "TD" ? 78 : 96, marginx: 70, marginy: 70 });
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: DIR === "TD" ? "TB" : "LR", nodesep: 30, edgesep: 14, ranksep: DIR === "TD" ? 58 : 76, marginx: 50, marginy: 50 });
   g.setDefaultEdgeLabel(() => ({}));
   const groups = new Map();
   const groupOf = n => n.group || CATS[n.cat].label;
-  for (const n of linked) { const gl = groupOf(n); if (!groups.has(gl)) groups.set(gl, { id: "grp" + groups.size, label: gl, members: [] }); groups.get(gl).members.push(n.id); }
-  groups.forEach(gr => g.setNode(gr.id, {}));
-  for (const n of linked) { g.setNode(n.id, { width: CARD_W, height: CARD_H }); g.setParent(n.id, groups.get(groupOf(n)).id); }
-  for (const e of ast.edges) g.setEdge(e.from, e.to, { w: e.w, label: e.label });
-  if (linked.length) { try { dagre.layout(g); } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "Das Layout ließ sich nicht berechnen."; return; } }
-  let W = linked.length ? Math.ceil(g.graph().width) : 0, H = linked.length ? Math.ceil(g.graph().height) : 0;
-  const pos = new Map(linked.map(n => [n.id, g.node(n.id)]));
+  for (const n of linked) { if (n.kind === "user") continue; const gl = groupOf(n); if (!groups.has(gl)) groups.set(gl, { id: "grp" + groups.size, label: gl, members: [] }); groups.get(gl).members.push(n.id); }
+  /* Externe Dienste kommen nicht ins dagre-Layout, sondern in eine eigene Zeile am Ende */
+  const extIds = new Set(linked.filter(n => n.kind === "ext" || (MODE === "ai" && !n.path && n.kind !== "user")).map(n => n.id));
+  for (const n of linked) { if (extIds.has(n.id)) continue; const d = dim(n); g.setNode(n.id, { width: d.w, height: d.h }); }
+  /* Beschriftungen bekommen eigenen Platz im Layout, damit sie nichts überdecken */
+  for (const e of ast.edges) if (!extIds.has(e.from) && !extIds.has(e.to)) g.setEdge(e.from, e.to, e.label ? { w: e.w, label: e.label, width: Math.ceil(e.label.length * 6.1 + 16), height: 18, labelpos: "c" } : { w: e.w });
+  if (g.nodeCount()) { try { dagre.layout(g); } catch (err) { console.error(err); empty.hidden = false; empty.textContent = "Das Layout ließ sich nicht berechnen."; return; } }
+  let W = g.nodeCount() ? Math.ceil(g.graph().width) : 0, H = g.nodeCount() ? Math.ceil(g.graph().height) : 0;
+  const pos = new Map(linked.filter(n => !extIds.has(n.id)).map(n => [n.id, g.node(n.id)]));
+  if (extIds.size) {
+    /* Position: unter (bzw. rechts von) den Bausteinen, die den Dienst nutzen; Überlappungen auflösen */
+    const TD = DIR === "TD", gap = TD ? CARD_W + 24 : CARD_H + 20;
+    const want = [...extIds].map(id => { const src = ast.edges.filter(e => e.to === id && pos.has(e.from)).map(e => pos.get(e.from)); return { id, c: src.length ? src.reduce((a, p) => a + (TD ? p.x : p.y), 0) / src.length : (TD ? W : H) / 2 }; }).sort((a, b) => a.c - b.c);
+    for (let i = 1; i < want.length; i++) want[i].c = Math.max(want[i].c, want[i - 1].c + gap);
+    const lane = (H || 0) + (TD ? 40 : 0), laneX = (W || 0) + (TD ? 0 : 60);
+    want.forEach(w => pos.set(w.id, TD ? { x: Math.max(50 + CARD_W / 2, w.c), y: Math.max(lane, 50) + CARD_H / 2 } : { x: Math.max(laneX, 50) + CARD_W / 2, y: Math.max(50 + CARD_H / 2, w.c) }));
+    if (TD) { H = Math.max(H, lane) + CARD_H + 60; W = Math.max(W, ...want.map(w => w.c + CARD_W / 2 + 50)); }
+    else { W = Math.max(W, laneX) + CARD_W + 80; H = Math.max(H, ...want.map(w => w.c + CARD_H / 2 + 50)); }
+  }
   if (loose.length) {
     const cols = Math.max(2, Math.min(6, Math.floor(((W || 1200) - 140) / (CARD_W + 24))));
     const sorted = [...loose].sort((a, b) => CAT_ORDER.indexOf(a.cat) - CAT_ORDER.indexOf(b.cat));
@@ -131,11 +144,22 @@ function renderCanvas({ animate = true } = {}) {
   graphSize = { w: W, h: H };
   svg.setAttribute("width", W); svg.setAttribute("height", H); svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
 
-  /* Gruppenrahmen aus den Mitgliedern berechnen */
+  /* Gruppenrahmen: nur für Fachbereiche (bzw. Gruppen aus dem Claude-Modus), und nur wenn kein fremder Baustein darin liegt */
+  const box = id => { const p = pos.get(id), n = ast.nodes.find(x => x.id === id), d = dim(n); return { x0: p.x - d.w / 2, x1: p.x + d.w / 2, y0: p.y - d.h / 2, y1: p.y + d.h / 2 }; };
+  for (const [key, gr] of [...groups]) {
+    if (key === "__loose") continue;
+    const n0 = ast.nodes.find(x => x.id === gr.members[0]);
+    const semantic = MODE === "ai" || (n0 && n0.group && n0.group !== CATS[n0.cat].label && n0.kind === "comp");
+    if (!semantic || gr.members.length < 2) { groups.delete(key); continue; }
+    const bs = gr.members.map(box);
+    const r = { x0: Math.min(...bs.map(b => b.x0)) - 16, x1: Math.max(...bs.map(b => b.x1)) + 16, y0: Math.min(...bs.map(b => b.y0)) - 34, y1: Math.max(...bs.map(b => b.y1)) + 14 };
+    const foreign = linked.some(n => !gr.members.includes(n.id) && (() => { const b = box(n.id); return b.x1 > r.x0 && b.x0 < r.x1 && b.y1 > r.y0 && b.y0 < r.y1; })());
+    if (foreign) groups.delete(key);
+  }
   groups.forEach(gr => {
     const ps = gr.members.map(id => pos.get(id));
     const gx0 = Math.min(...ps.map(p => p.x - CARD_W / 2)) - 16, gx1 = Math.max(...ps.map(p => p.x + CARD_W / 2)) + 16;
-    const gy0 = Math.min(...ps.map(p => p.y - CARD_H / 2)) - 36, gy1 = Math.max(...ps.map(p => p.y + CARD_H / 2)) + 16;
+    const gy0 = Math.min(...ps.map(p => p.y - CARD_H / 2)) - 34, gy1 = Math.max(...ps.map(p => p.y + CARD_H / 2)) + 14;
     gr.el = el("div", { class: "grp", style: `left:${gx0}px;top:${gy0}px;width:${gx1 - gx0}px;height:${gy1 - gy0}px` }, el("span", {}, gr.label));
     nodesEl.append(gr.el);
   });
@@ -153,16 +177,27 @@ function renderCanvas({ animate = true } = {}) {
   const line = d3.line().x(p => p.x).y(p => p.y).curve(d3.curveBasis);
   const maxW = Math.max(1, ...ast.edges.map(e => e.w || 1));
   EDGE_ELS = [];
+  const anchor = (id, out) => { const p = pos.get(id), n = ast.nodes.find(x => x.id === id), dd = dim(n);
+    return DIR === "TD" ? { x: p.x, y: p.y + (out ? dd.h / 2 : -dd.h / 2 - 2) } : { x: p.x + (out ? dd.w / 2 : -dd.w / 2 - 2), y: p.y }; };
   ast.edges.forEach((e, i) => {
-    const ed = g.edge(e.from, e.to); if (!ed) return;
-    const d = line(ed.points);
+    let ed = g.hasEdge(e.from, e.to) ? g.edge(e.from, e.to) : null, d;
+    if (ed) d = line(ed.points);
+    else if (pos.has(e.from) && pos.has(e.to)) {
+      /* eigene Kurve zu externen Diensten */
+      const a = anchor(e.from, true), b = anchor(e.to, false);
+      d = DIR === "TD" ? `M${a.x},${a.y} C${a.x},${(a.y + b.y) / 2} ${b.x},${(a.y + b.y) / 2} ${b.x},${b.y}` : `M${a.x},${a.y} C${(a.x + b.x) / 2},${a.y} ${(a.x + b.x) / 2},${b.y} ${b.x},${b.y}`;
+      /* Beschriftung auf der Kurve (t = 0.62), damit mehrere Pfeile in denselben Dienst nicht übereinander liegen */
+      const t = 0.62, u = 1 - t, m = DIR === "TD" ? (a.y + b.y) / 2 : (a.x + b.x) / 2;
+      const bz = (p0, p1, p2, p3) => u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+      ed = DIR === "TD" ? { x: bz(a.x, a.x, b.x, b.x), y: bz(a.y, m, m, b.y), points: [a, b] } : { x: bz(a.x, m, m, b.x), y: bz(a.y, a.y, b.y, b.y), points: [a, b] };
+    } else return;
     const sw = e.w ? 1.2 + Math.min(2.4, Math.log2(e.w + 1) * 0.55) : 1.5;
     const base = document.createElementNS(NS, "path"); base.setAttribute("d", d); base.setAttribute("class", "edge"); base.setAttribute("stroke-width", sw); base.setAttribute("marker-end", "url(#arr)");
     const flow = document.createElementNS(NS, "path"); flow.setAttribute("d", d); flow.setAttribute("class", "flow"); flow.setAttribute("stroke-width", Math.max(1.4, sw * 0.8));
     if (e.w) flow.style.animationDuration = (1.6 - Math.min(0.9, (e.w / maxW) * 0.9)).toFixed(2) + "s"; /* stärkere Kopplung fließt schneller */
     svg.append(base, flow);
     let label = null;
-    if (e.label) { const mid = ed.points[Math.floor(ed.points.length / 2)]; label = el("div", { class: "elabel", style: `left:${mid.x}px;top:${mid.y}px` }, e.label); nodesEl.append(label); }
+    if (e.label) { const mid = ed.x != null ? ed : ed.points[Math.floor(ed.points.length / 2)]; label = el("div", { class: "elabel", style: `left:${mid.x}px;top:${mid.y}px`, title: e.w ? `${e.w} Importe` : "" }, e.label); nodesEl.append(label); }
     EDGE_ELS.push({ e, base, flow, label });
     if (animate && !REDUCE.matches) {
       const len = base.getTotalLength();
@@ -176,14 +211,23 @@ function renderCanvas({ animate = true } = {}) {
   CARD_ELS = new Map();
   const order = [...ast.nodes].sort((a, b) => (DIR === "TD" ? pos.get(a.id).y - pos.get(b.id).y || pos.get(a.id).x - pos.get(b.id).x : pos.get(a.id).x - pos.get(b.id).x || pos.get(a.id).y - pos.get(b.id).y));
   order.forEach((n, i) => {
-    const p = pos.get(n.id);
-    const foot = n.files !== undefined || MODE === "heur"
-      ? [el("span", { class: "dot" }), el("span", {}, `${fmtInt(heurNode(n.id)?.files.length ?? 0)} Dateien`), el("span", { class: "sz" }, fmtBytes(heurNode(n.id)?.bytes ?? 0))]
-      : [el("span", { class: "dot" }), el("span", {}, CATS[n.cat].label)];
-    const card = el("div", { class: "card" + (MODE === "ai" && !n.path ? " ext" : ""), tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id,
-      style: `--c:var(--c-${n.cat});left:${p.x - CARD_W / 2}px;top:${p.y - CARD_H / 2}px` },
-      el("div", { class: "hd" }, el("span", { class: "ico" }, catIcon(n.cat)), el("div", { style: "min-width:0" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth" }, MODE === "ai" ? (n.path || "externer Dienst") : (n.path || "/")))),
-      el("div", { class: "ft" }, ...(MODE === "ai" ? aiFoot(n) : foot)));
+    const p = pos.get(n.id), d = dim(n);
+    const hn = heurNode(n.id);
+    const isExt = n.kind === "ext" || (MODE === "ai" && !n.path);
+    let card;
+    if (n.kind === "user") {
+      card = el("div", { class: "card user", tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id, style: `--c:var(--c-user);left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px` },
+        el("span", { class: "ico" }, catIcon("user")), el("span", { class: "nm" }, n.label));
+    } else {
+      const foot = MODE === "ai" ? aiFoot(n)
+        : isExt ? [el("span", { class: "dot" }), el("span", {}, "Externer Dienst")]
+        : [el("span", { class: "dot" }), el("span", {}, `${fmtInt(hn?.files.length ?? 0)} Dateien`), el("span", { class: "sz" }, fmtBytes(hn?.bytes ?? 0))];
+      const sub = MODE === "ai" ? (n.path || "externer Dienst") : isExt ? (n.main || "") : (n.main || n.path || "/");
+      card = el("div", { class: "card" + (isExt ? " ext" : ""), tabindex: "0", role: "button", "aria-label": n.label, "data-id": n.id,
+        style: `--c:var(--c-${n.cat});left:${p.x - d.w / 2}px;top:${p.y - d.h / 2}px` },
+        el("div", { class: "hd" }, el("span", { class: "ico" }, catIcon(n.cat)), el("div", { style: "min-width:0" }, el("div", { class: "nm" }, n.label), el("div", { class: "pth", title: n.path || "" }, sub))),
+        el("div", { class: "ft" }, ...foot));
+    }
     card.addEventListener("click", ev => { ev.stopPropagation(); select(n.id); centerOn(n.id); });
     card.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(n.id); } });
     card.addEventListener("pointerdown", ev => ev.stopPropagation());
@@ -222,10 +266,18 @@ function highlight(id) {
 /* ============ Pan & Zoom – 1:1 ziehen, Schwung, Scrollen verschiebt, ⌘/Strg + Scrollen zoomt ============ */
 function fitTarget() {
   const st = $("#stage"); if (!graphSize.w) return null;
-  const sw = st.clientWidth, sh = st.clientHeight;
-  const top = Math.min(sh * 0.35, ($(".hud")?.offsetHeight || 0) + 24);
-  const s = Math.min(1.05, Math.max(sw < 700 ? 0.42 : 0.5, Math.min((sw - 40) / graphSize.w, (sh - top - 50) / graphSize.h)));
-  return { s, x: (sw - graphSize.w * s) / 2, y: top + Math.max(0, (sh - top - 50 - graphSize.h * s) / 2) };
+  const sw = st.clientWidth, sh = st.clientHeight, bottom = 64, minS = sw < 700 ? 0.42 : 0.45;
+  const sum = $("#summary"), hud = $(".hud");
+  const hudH = (hud?.offsetHeight || 0) + 24, sumW = (sum?.offsetWidth || 0) + 34;
+  /* Variante A: unter der Übersicht, volle Breite · Variante B: rechts neben der Übersicht, volle Höhe */
+  const sA = Math.min((sw - 40) / graphSize.w, (sh - hudH - bottom) / graphSize.h);
+  const sB = sw > 900 ? Math.min((sw - sumW - 24) / graphSize.w, (sh - 70 - bottom) / graphSize.h) : 0;
+  if (sB > sA * 1.08) {
+    const s = Math.min(1.05, Math.max(minS, sB));
+    return { s, x: sumW + Math.max(0, (sw - sumW - 24 - graphSize.w * s) / 2), y: 70 + Math.max(0, (sh - 70 - bottom - graphSize.h * s) / 2) };
+  }
+  const s = Math.min(1.05, Math.max(minS, sA));
+  return { s, x: (sw - graphSize.w * s) / 2, y: hudH + Math.max(0, (sh - hudH - bottom - graphSize.h * s) / 2) };
 }
 function fitView(animated) {
   const t = fitTarget(); if (!t) return;
@@ -325,6 +377,8 @@ function select(id) {
 
   const files = MODE === "heur" ? (heurNode(id)?.files || []) : (an.path ? A.files.filter(f => f.path === an.path || f.path.startsWith(an.path.replace(/\/$/, "") + "/")) : []);
   if (an.desc) body.append(el("p", { class: "desc" }, an.desc));
+  if (MODE === "heur" && an.kind === "ext") body.append(el("p", { class: "desc" }, `${an.main || "Externer Dienst"}, erkannt über Paket-Importe. Die Pfeile zeigen, welche Bausteine den Dienst direkt einbinden.`));
+  if (MODE === "heur" && an.kind === "user") body.append(el("p", { class: "desc" }, "Einstiegspunkt der Oberfläche. Der Pfeil zeigt auf den Baustein mit der Einstiegsdatei (z. B. main.ts oder App.tsx)."));
   /* Kennzahlen */
   if (files.length) {
     const bytes = files.reduce((a, f) => a + f.size, 0);
@@ -336,7 +390,7 @@ function select(id) {
   /* Pfad */
   const isDir = an.path ? !A.fileSet.has(an.path) : false;
   const u = an.path ? repoUrl(an.path, isDir) : null;
-  body.append(el("div", { class: "sec" }, el("h4", {}, "Pfad"),
+  if (an.kind === "comp" || MODE === "ai") body.append(el("div", { class: "sec" }, el("h4", {}, "Pfad"),
     el("div", { class: "pathbox" }, svgUse(isDir || !an.path ? "i-folder" : "i-file"),
       u ? el("a", { href: u, target: "_blank", rel: "noopener", style: "flex:1" }, an.path) : el("span", { style: "flex:1" }, an.path || (MODE === "ai" ? "Externer Dienst – kein Pfad im Repo" : "/ (Wurzel)")),
       u ? svgUse("i-ext") : null)));
@@ -356,10 +410,10 @@ function select(id) {
     return el("div", { class: "sec" }, el("h4", {}, title), el("div", { class: "rows" }, ...arr.map(e => {
       const o = ast.nodes.find(n => n.id === e[key]); if (!o) return null;
       return el("button", { class: "r", type: "button", onclick: () => { select(o.id); centerOn(o.id); } },
-        el("span", { class: "d", style: `background:var(--c-${o.cat})` }), el("span", { class: "n" }, o.label), el("span", { class: "v" }, e.label || ""), el("span", { class: "ar" }, "→"));
+        el("span", { class: "d", style: `background:var(--c-${o.cat})` }), el("span", { class: "n" }, o.label), el("span", { class: "v" }, (e.label || "") + (e.w && MODE === "heur" ? ` · ${e.w}` : "")), el("span", { class: "ar" }, "→"));
     })));
   };
-  const c1 = conn(MODE === "heur" ? "Importiert aus" : "Verbindet zu", outE, "to"), c2 = conn(MODE === "heur" ? "Wird importiert von" : "Verbunden von", inE, "from");
+  const c1 = conn(MODE === "heur" ? "Nutzt" : "Verbindet zu", outE, "to"), c2 = conn(MODE === "heur" ? "Wird genutzt von" : "Verbunden von", inE, "from");
   if (c1) body.append(c1); if (c2) body.append(c2);
   if (!c1 && !c2) body.append(el("p", { class: "empty-note" }, MODE === "heur" ? "Keine erkannten Importe zu anderen Komponenten." : "Keine Verbindungen."));
   /* Größte Dateien */
@@ -376,7 +430,7 @@ function centerOn(id) {
   const c = CARD_ELS.get(id); if (!c) return;
   const st = $("#stage"), s = Math.max(view.s.target, 0.8);
   view.s.to(s);
-  const cx = parseFloat(c.style.left) + CARD_W / 2, cy = parseFloat(c.style.top) + CARD_H / 2;
+  const cx = parseFloat(c.style.left) + c.offsetWidth / 2, cy = parseFloat(c.style.top) + c.offsetHeight / 2;
   const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
   view.x.to(free / 2 - cx * s); view.y.to(st.clientHeight / 2 - cy * s);
 }

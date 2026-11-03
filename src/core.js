@@ -19,7 +19,7 @@ function solid(name) {
   const parse = v => { const c = document.createElement("canvas").getContext("2d"); c.fillStyle = "#000"; c.fillStyle = v; const f = c.fillStyle;
     if (f.startsWith("#")) return [parseInt(f.slice(1, 3), 16), parseInt(f.slice(3, 5), 16), parseInt(f.slice(5, 7), 16), 1];
     const m = f.match(/[\d.]+/g).map(Number); return [m[0], m[1], m[2], m[3] ?? 1]; };
-  const [r, g, b, a] = parse(css(name)); const [br, bg, bb] = parse(css("--content"));
+  const [r, g, b, a] = parse(css(name)); const [br, bg, bb] = parse(css("--surface"));
   const mix = (x, y) => Math.round(x * a + y * (1 - a)).toString(16).padStart(2, "0");
   return "#" + mix(r, br) + mix(g, bg) + mix(b, bb);
 }
@@ -63,13 +63,15 @@ const CATS = {
   docs:{label:"Dokumentation", rx:/^(docs?|documentation|wiki|guides?|examples?|samples?)$/i},
   tooling:{label:"Tooling & Experimente", rx:/^(tools?|experiments?|plugins?|extensions?|benchmarks?|bench|playground|sandbox|patches|contrib|hack)$/i},
   config:{label:"Projektwurzel / Konfiguration", rx:/^$/},
+  external:{label:"Externe Dienste", rx:/^$/},
+  user:{label:"Nutzer", rx:/^$/},
 };
-const CAT_ORDER = ["frontend","backend","core","infra","tooling","tests","docs","config"];
+const CAT_ORDER = ["user","frontend","backend","core","infra","tooling","tests","docs","config","external"];
 function categorize(compPath, hint) {
   if (compPath === "") return "config";
   const segs = compPath.split("/");
   for (let i = segs.length - 1; i >= 0; i--) {
-    for (const c of CAT_ORDER) if (c !== "config" && CATS[c].rx.test(segs[i])) {
+    for (const c of CAT_ORDER) if (c !== "config" && c !== "external" && c !== "user" && CATS[c].rx.test(segs[i])) {
       if (c === "core" && i < segs.length - 1) continue; /* "src/…": nicht pauschal Kern */
       return c;
     }
@@ -96,9 +98,45 @@ function extractImports(path, text) {
       else if (m[2]) for (const x of m[2].split(",")) out.add("py:" + x.trim());
     }
   } else {
-    for (const m of text.matchAll(JS_IMPORT_RX)) if (/^(\.|@\/|~\/)/.test(m[1])) out.add(m[1]);
+    for (const m of text.matchAll(JS_IMPORT_RX)) {
+      const sp = m[1];
+      if (/^(\.|@\/|~\/)/.test(sp)) out.add(sp);
+      else if (/^(@[\w.-]+\/)?[\w.-]+/.test(sp) && !/^(node:|https?:)/.test(sp)) out.add("pkg:" + sp.split("/").slice(0, sp.startsWith("@") ? 3 : 2).join("/"));
+    }
+  }
+  /* API-Basis-URLs aus Umgebungs- und Konfigurationsdateien */
+  if (/(environ|config|settings|constants|\.env)/i.test(path)) {
+    for (const m of text.matchAll(/https?:\/\/([a-z0-9.-]+\.[a-z]{2,})(?::\d+)?/gi)) {
+      const host = m[1].toLowerCase();
+      if (!/(localhost|127\.0\.0\.1|example\.|schema|w3\.org|github\.com|googleapis|gstatic|npmjs|unpkg|jsdelivr|cdnjs)/.test(host)) out.add("url:" + host);
+    }
   }
   return [...out];
+}
+
+/* ============ Externe Dienste: Paketnamen → Dienst ============ */
+const EXTERNALS = [
+  { id: "auth", label: "Anmeldung", js: /^(ngx-clerk|@clerk\/|@auth0\/|next-auth|@supabase\/auth|firebase\/auth|@okta\/|keycloak|passport)/, py: /^(authlib|flask_login|django\.contrib\.auth)$/, verb: "authentifiziert",
+    name: sp => /clerk/.test(sp) ? "Clerk" : /auth0/.test(sp) ? "Auth0" : /next-auth/.test(sp) ? "NextAuth" : /okta/.test(sp) ? "Okta" : /keycloak/.test(sp) ? "Keycloak" : /passport/.test(sp) ? "Passport" : "Auth" },
+  { id: "http", label: "Backend-API", js: /^(@angular\/common\/http|axios|ky|got|node-fetch|ofetch|@tanstack\/react-query|swr|@apollo\/client|graphql-request|@trpc\/client)/, py: /^(requests|httpx|aiohttp|urllib3)$/, verb: "ruft auf", name: () => "HTTP" },
+  { id: "db", label: "Datenbank", js: /^(pg|postgres|@neondatabase\/|mysql2?|mongodb|mongoose|@prisma\/client|drizzle-orm|typeorm|sequelize|better-sqlite3|sqlite3|knex|@planetscale\/|@libsql\/)/, py: /^(sqlalchemy|psycopg2?|pymongo|sqlite3|asyncpg|peewee|motor|django\.db)$/, verb: "speichert",
+    name: sp => /neon/.test(sp) ? "Neon Postgres" : /(^pg$|postgres|psycopg|asyncpg)/.test(sp) ? "Postgres" : /mongo|motor/.test(sp) ? "MongoDB" : /mysql/.test(sp) ? "MySQL" : /prisma/.test(sp) ? "Prisma ORM" : /drizzle/.test(sp) ? "Drizzle ORM" : /sqlite/.test(sp) ? "SQLite" : "Datenbank" },
+  { id: "cache", label: "Cache", js: /^(redis|ioredis|@upstash\/redis|@vercel\/kv)/, py: /^(redis)$/, verb: "cacht", name: () => "Redis" },
+  { id: "baas", label: "Backend-as-a-Service", js: /^(@supabase\/supabase-js|firebase(\/(app|firestore|database))?$|firebase-admin|appwrite|pocketbase)/, py: /^(supabase|firebase_admin)$/, verb: "synchronisiert",
+    name: sp => /supabase/.test(sp) ? "Supabase" : /firebase/.test(sp) ? "Firebase" : /appwrite/.test(sp) ? "Appwrite" : "PocketBase" },
+  { id: "ai", label: "KI-API", js: /^(openai|@anthropic-ai\/sdk|@google\/generative-ai|@google\/genai|cohere-ai|@mistralai\/|ai$|@ai-sdk\/|replicate)/, py: /^(openai|anthropic|google\.generativeai|cohere|mistralai|transformers|langchain)$/, verb: "fragt an",
+    name: sp => /openai/.test(sp) ? "OpenAI" : /anthropic/.test(sp) ? "Anthropic" : /google/.test(sp) ? "Gemini" : /mistral/.test(sp) ? "Mistral" : /cohere/.test(sp) ? "Cohere" : /langchain/.test(sp) ? "LangChain" : "KI-API" },
+  { id: "pay", label: "Zahlungen", js: /^(stripe|@stripe\/|@paypal\/|@lemonsqueezy\/)/, py: /^(stripe)$/, verb: "rechnet ab", name: sp => /paypal/.test(sp) ? "PayPal" : /lemon/.test(sp) ? "Lemon Squeezy" : "Stripe" },
+  { id: "mail", label: "E-Mail", js: /^(resend|nodemailer|@sendgrid\/|postmark|@react-email\/)/, py: /^(smtplib|sendgrid)$/, verb: "versendet", name: sp => /resend/.test(sp) ? "Resend" : /sendgrid/.test(sp) ? "SendGrid" : /postmark/.test(sp) ? "Postmark" : "E-Mail" },
+  { id: "storage", label: "Dateispeicher", js: /^(@aws-sdk\/client-s3|@vercel\/blob|@google-cloud\/storage|minio|uploadthing)/, py: /^(boto3|google\.cloud\.storage|minio)$/, verb: "lädt hoch", name: sp => /vercel/.test(sp) ? "Vercel Blob" : /google/.test(sp) ? "Cloud Storage" : "S3" },
+  { id: "realtime", label: "Echtzeit", js: /^(socket\.io-client|socket\.io|mqtt|ws$|pusher|@pusher\/|ably|@liveblocks\/|partysocket)/, py: /^(paho|websockets|socketio)$/, verb: "streamt", name: sp => /mqtt|paho/.test(sp) ? "MQTT-Broker" : /pusher/.test(sp) ? "Pusher" : /liveblocks/.test(sp) ? "Liveblocks" : "WebSocket" },
+  { id: "obs", label: "Monitoring", js: /^(@sentry\/|posthog-js|posthog-node|@vercel\/analytics|mixpanel|@datadog\/)/, py: /^(sentry_sdk|posthog)$/, verb: "meldet", name: sp => /sentry/.test(sp) ? "Sentry" : /posthog/.test(sp) ? "PostHog" : /vercel/.test(sp) ? "Vercel Analytics" : /mixpanel/.test(sp) ? "Mixpanel" : "Datadog" },
+];
+function externalFor(spec) {
+  const js = spec.startsWith("pkg:"), name = spec.slice(js ? 4 : 3).replace(/^\.+/, "");
+  if (!name) return null;
+  for (const x of EXTERNALS) if (js ? x.js.test(name) : x.py.test(name.split(".").slice(0, 2).join(".")) || x.py.test(name.split(".")[0])) return { ...x, name: x.name(name) };
+  return null;
 }
 function normPath(p) {
   const out = [];
@@ -140,74 +178,172 @@ function analyze(data) {
   for (const f of files) { const [n, c] = langOf(f.path); const o = lang.get(n) || { name: n, color: c, bytes: 0, files: 0 }; o.bytes += f.size; o.files++; lang.set(n, o); }
   const langs = [...lang.values()].sort((a, b) => b.bytes - a.bytes);
 
-  /* Komponenten: Verzeichnisbaum adaptiv aufteilen */
-  const dirCount = new Map(); /* dir → Anzahl Dateien darunter */
-  for (const f of files) { const segs = f.path.split("/"); for (let i = 1; i < segs.length; i++) { const d = segs.slice(0, i).join("/"); dirCount.set(d, (dirCount.get(d) || 0) + 1); } }
-  const childrenOf = d => [...dirCount.keys()].filter(k => dirname(k) === d && k !== d);
-  let comps = new Set(childrenOf(""));
-  const WRAP = /^(src|packages|apps|services|modules|internal|pkg|libs|crates)$/i;
-  const totalFiles = files.length;
-  for (let guard = 0; guard < 40; guard++) {
-    if (comps.size >= 22) break;
-    let best = null;
-    for (const c of comps) {
-      const kids = childrenOf(c); if (kids.length < 2) continue;
-      const n = dirCount.get(c), wrap = WRAP.test(basename(c));
-      const weight = wrap ? n * 10 : n;
-      if ((wrap || n > totalFiles * 0.18) && (!best || weight > best.w)) best = { c, w: weight };
+  /* ===== Architektur ableiten =====
+     Ziel wie bei einem guten Architekturdiagramm: ~10–16 benannte Bausteine, nach Fachbereich gruppiert,
+     wenige beschriftete Beziehungen, externe Dienste und ein Einstiegspunkt. */
+  /* Quellcode = Code, kein Test, kein Build-Ergebnis, keine Konfig-Datei in der Wurzel */
+  const isSrc = p => isCode(p) && !isTest(p) && !/(^|\/)(public|static|dist|build|out|vendor|assets|\.next|coverage)\//.test(p) && !/\.min\.js$/.test(p) && !(!p.includes("/") && /\.config\.|^\./.test(p));
+  const codeIn = new Map(), allIn = new Map();
+  for (const f of files) { const segs = f.path.split("/"); for (let i = 0; i < segs.length; i++) { const d = segs.slice(0, i).join("/"); allIn.set(d, (allIn.get(d) || 0) + 1); if (isSrc(f.path)) codeIn.set(d, (codeIn.get(d) || 0) + 1); } }
+  const dirs = [...allIn.keys()];
+  const kidsOf = new Map(); for (const d of dirs) if (d) { const p = dirname(d); if (!kidsOf.has(p)) kidsOf.set(p, []); kidsOf.get(p).push(d); }
+  const childDirs = d => kidsOf.get(d) || [];
+  const directCode = d => files.filter(f => dirname(f.path) === d && isSrc(f.path)).length;
+  const totalCode = codeIn.get("") || 0;
+  const TARGET = Math.max(8, Math.min(16, Math.round(5 + Math.sqrt(totalCode) * 0.9)));
+  /* Startpunkt: Wurzel aufteilen; Bausteine sind Ordner, "d/*" steht für die Dateien direkt in d */
+  let comps = new Set([...childDirs(""), "/*"]);
+  const codeOf = c => c.endsWith("/*") ? directCode(c === "/*" ? "" : c.slice(0, -2)) : (codeIn.get(c) || 0);
+  const codeComps = () => [...comps].filter(c => codeOf(c) > 0).length;
+  const splitResult = c => { const kids = childDirs(c); return [...kids, ...(files.some(f => dirname(f.path) === c) ? [c + "/*"] : [])]; };
+  for (let guard = 0; guard < 60; guard++) {
+    const cand = [...comps].filter(c => !c.endsWith("/*") && childDirs(c).some(k => codeIn.get(k))).sort((a, b) => codeOf(b) - codeOf(a));
+    let done = false;
+    for (const c of cand) {
+      const res = splitResult(c), add = res.filter(r => (r.endsWith("/*") ? directCode(r.slice(0, -2)) : codeIn.get(r) || 0) > 0).length - 1;
+      const share = codeOf(c) / Math.max(1, totalCode);
+      const wrapper = /^(src|app|lib|packages|apps|source|main|internal|pkg|modules|crates|services)$/i.test(basename(c)) && add <= 8;
+      if (!(wrapper || share > 1 / TARGET)) continue;
+      if (codeComps() + add > TARGET && !(wrapper && codeComps() + add <= TARGET + 3)) continue;
+      comps.delete(c); res.forEach(r => comps.add(r)); done = true; break;
     }
-    if (!best) break;
-    comps.delete(best.c); for (const k of childrenOf(best.c)) comps.add(k);
-    comps.add(best.c + "/*");
+    if (!done) break;
   }
-  /* Dateien den Komponenten zuordnen */
+  /* Dateien zuordnen (längster passender Baustein) */
   const compList = [...comps];
   const compOf = path => {
-    let bestc = "", bl = -1;
+    let best = "/*", bl = -1;
     for (const c of compList) {
-      const real = c.endsWith("/*") ? c.slice(0, -2) : c;
-      if (c.endsWith("/*") ? dirname(path) === real : (path.startsWith(real + "/"))) { if (real.length > bl) { bestc = c; bl = real.length; } }
+      const real = c === "/*" ? "" : c.endsWith("/*") ? c.slice(0, -2) : c;
+      const hit = c.endsWith("/*") ? dirname(path) === real : path.startsWith(real + "/");
+      if (hit && real.length > bl) { best = c; bl = real.length; }
     }
-    return bestc;
+    return best;
   };
-  const compMap = new Map();
-  const ensure = key => { if (!compMap.has(key)) compMap.set(key, { key, files: [], bytes: 0 }); return compMap.get(key); };
-  const fileComp = new Map();
-  for (const f of files) { const k = compOf(f.path); const o = ensure(k); o.files.push(f); o.bytes += f.size; fileComp.set(f.path, k); }
-  /* Kleine Komponenten (≤1 Datei) mit Wurzel-Konfiguration zusammenlegen, wenn viele */
-  let compsArr = [...compMap.values()];
-  if (compsArr.length > 26) {
-    compsArr.sort((a, b) => a.files.length - b.files.length);
-    while (compsArr.length > 26) { const small = compsArr.shift(); const tgt = ensure(""); tgt.files.push(...small.files); tgt.bytes += small.bytes; small.files.forEach(f => fileComp.set(f.path, "")); compMap.delete(small.key); compsArr = [...compMap.values()].filter(c => c.key !== "").sort((a, b) => a.files.length - b.files.length); compsArr.push(compMap.get("")); compsArr.sort((a, b) => a.files.length - b.files.length); }
-  }
-  const aliasRoot = fileSet.has("tsconfig.json") && [...fileSet].some(p => p.startsWith("src/")) ? "src" : "";
-  const nodes = [...compMap.values()].map((c, i) => {
-    const real = c.key.endsWith("/*") ? c.key.slice(0, -2) : c.key;
-    const label = c.key === "" ? "Projektwurzel" : c.key.endsWith("/*") ? basename(real) + " (Dateien)" : c.key.split("/").slice(-2).join("/");
+  const compMap = new Map(), fileComp = new Map();
+  /* Werkzeug-Ordner ohne Quellcode (.vscode, .idea …) gehören zur Projektwurzel */
+  const INFRA_DOT = /^\.(github|gitlab|circleci|githooks|devcontainer|husky)$/;
+  const foldIntoRoot = k => k !== "/*" && !k.includes("/") && k.startsWith(".") && !INFRA_DOT.test(k) && !codeIn.get(k);
+  for (const f of files) { let k = compOf(f.path); if (foldIntoRoot(k)) k = "/*"; if (!compMap.has(k)) compMap.set(k, { key: k, files: [], bytes: 0 }); const o = compMap.get(k); o.files.push(f); o.bytes += f.size; fileComp.set(f.path, k); }
+
+  /* Namen: generische Ordnernamen bekommen ihren Fachbereich dazu ("todo/services" → "Todo Services") */
+  const GENERIC = /^(components?|services?|shared|common|models?|utils?|helpers|lib|libs|hooks|store|stores|state|types|api|routes?|controllers?|views?|pages|core|data|features|modules|ui|widgets|handlers?|middleware|schemas?|entities|interfaces|directives|pipes|guards|interceptors|providers|config|constants|assets)$/i;
+  const human = s => s.replace(/[-_.]+/g, " ").replace(/\b\w/g, ch => ch.toUpperCase()).trim();
+  const ENTRY = /(^|\/)(main\.(t|j)sx?|index\.(t|j)sx?|app\.(t|j)sx?|App\.(t|j)sx?|app\.component\.ts|page\.(t|j)sx?|layout\.(t|j)sx?|main\.py|app\.py|manage\.py|server\.(t|j)s|index\.html|main\.go|main\.rs)$/;
+  const mainFile = fs => {
+    const src = fs.filter(f => isSrc(f.path)); if (!src.length) return null;
+    const roots = new Set(src.map(f => dirname(f.path)).sort((x, y) => x.length - y.length).slice(0, 1));
+    const entry = src.find(f => ENTRY.test(f.path) && roots.has(dirname(f.path)));
+    if (entry) return entry;
+    const svc = src.filter(f => /\.(service|store|model|api|client|controller|router|module|hook)\.|^use[A-Z]/.test(basename(f.path)));
+    return (svc.length ? svc : src).sort((a, b) => b.size - a.size)[0];
+  };
+  const STRIP = /^(src|app|lib|source|frontend|client|main|java|kotlin)$/i;
+  const domainOf = real => { const segs = real.split("/").filter(Boolean); let i = 0; while (i < segs.length - 1 && STRIP.test(segs[i])) i++; return segs.length ? segs[i] : ""; };
+  const aliasRoot = fileSet.has("tsconfig.json") && files.some(f => f.path.startsWith("src/")) ? "src" : "";
+  let nodes = [...compMap.values()].map((c, i) => {
+    const real = c.key === "/*" ? "" : c.key.endsWith("/*") ? c.key.slice(0, -2) : c.key;
+    const base = basename(real), parent = basename(dirname(real));
+    const mf = mainFile(c.files);
+    let label;
+    if (c.key === "/*") label = "Projektwurzel";
+    else if (c.key.endsWith("/*")) label = mf && ENTRY.test(mf.path) ? (/(^|\/)(app|App)\./.test(mf.path) ? "App-Shell" : "Einstieg") : mf ? human(basename(mf.path).replace(/\.(m?[jt]sx?|py|go|rs|vue|svelte)$/, "")) : human(base) + " (Dateien)";
+    else if (GENERIC.test(base) && parent && !STRIP.test(parent)) label = human(parent) + " " + human(base);
+    else label = human(base);
     const testShare = c.files.filter(f => isTest(f.path)).length / Math.max(1, c.files.length);
-    const cat = testShare > 0.6 ? "tests" : categorize(c.key.endsWith("/*") ? "" : real === "" ? "" : real);
-    return { id: "n" + i, key: c.key, path: real, label, cat: c.key.endsWith("/*") && real ? categorize(real) : cat, files: c.files, bytes: c.bytes, isDir: c.key !== "" && !c.key.endsWith("/*") };
+    const mdShare = c.files.filter(f => /\.(mdx?|txt|rst)$/i.test(f.path)).length / Math.max(1, c.files.length);
+    const codeCnt = c.files.filter(f => isSrc(f.path)).length;
+    let cat = c.key === "/*" ? "config" : testShare > 0.6 ? "tests" : !codeCnt && mdShare > 0.5 ? "docs" : categorize(real);
+    if (c.key.endsWith("/*") && c.key !== "/*" && mf && ENTRY.test(mf.path)) cat = "frontend";
+    return { id: "n" + i, key: c.key, path: real, label, cat, files: c.files, bytes: c.bytes, main: mf ? basename(mf.path) : null, code: c.files.filter(f => isSrc(f.path)).length, isDir: !c.key.endsWith("/*"), domain: domainOf(real), kind: "comp" };
   });
+  /* Gleichnamige Labels eindeutig machen */
+  const seen = new Map(); nodes.forEach(n => seen.set(n.label, (seen.get(n.label) || 0) + 1));
+  nodes.forEach(n => { if (seen.get(n.label) > 1 && n.path) n.label = human(n.path.split("/").filter(x => !STRIP.test(x)).slice(-2).join(" ")) || n.label; });
+  /* Gruppen: Fachbereich mit ≥ 2 Bausteinen, sonst Schicht */
+  const domCount = new Map(); nodes.forEach(n => { if (n.domain && n.code) domCount.set(n.domain, (domCount.get(n.domain) || 0) + 1); });
+  nodes.forEach(n => { n.group = n.domain && domCount.get(n.domain) >= 2 && n.code ? human(n.domain) : CATS[n.cat].label; });
   const nodeByKey = new Map(nodes.map(n => [n.key, n]));
 
-  /* Kanten aus Importen */
-  const edgeW = new Map(); const fileEdges = [];
+  /* Beziehungen aus Importen */
+  const edgeW = new Map(), extUse = new Map(), urlHosts = new Set(); const fileEdges = [];
   let resolved = 0, analysed = 0;
   for (const [from, specs] of Object.entries(data.imports || {})) {
     if (!fileSet.has(from)) continue; analysed++;
-    const testFile = isTest(from);
-    for (const s of specs) {
-      const to = resolveImport(from, s, fileSet, aliasRoot); if (!to) continue; resolved++;
+    const testFile = isTest(from); const a = nodeByKey.get(fileComp.get(from));
+    for (const sp of specs) {
+      if (sp.startsWith("url:")) { urlHosts.add(sp.slice(4)); continue; }
+      if (sp.startsWith("pkg:") || sp.startsWith("py:")) {
+        const to = sp.startsWith("py:") ? resolveImport(from, sp, fileSet, aliasRoot) : null;
+        if (!to) { if (testFile || !a) continue; const x = externalFor(sp); if (x) { const k = x.id; if (!extUse.has(k)) extUse.set(k, { x, from: new Map() }); const u = extUse.get(k); u.from.set(a.id, (u.from.get(a.id) || 0) + 1); } continue; }
+        resolved++; fileEdges.push([from, to]);
+        if (testFile || isTest(to)) continue;
+        const b = nodeByKey.get(fileComp.get(to)); if (!a || !b || a === b) continue;
+        const k = a.id + ">" + b.id; edgeW.set(k, (edgeW.get(k) || 0) + 1); continue;
+      }
+      const to = resolveImport(from, sp, fileSet, aliasRoot); if (!to) continue; resolved++;
       fileEdges.push([from, to]);
       if (testFile || isTest(to)) continue;
-      const a = nodeByKey.get(fileComp.get(from)), b = nodeByKey.get(fileComp.get(to));
+      const b = nodeByKey.get(fileComp.get(to));
       if (!a || !b || a === b) continue;
       const k = a.id + ">" + b.id; edgeW.set(k, (edgeW.get(k) || 0) + 1);
     }
   }
-  let edges = [...edgeW.entries()].map(([k, w]) => { const [from, to] = k.split(">"); return { from, to, w }; }).sort((a, b) => b.w - a.w);
-  const allEdges = edges; edges = edges.filter((e, i) => i < 14 || e.w >= 2).slice(0, 36);
+  const allEdges = [...edgeW.entries()].map(([k, w]) => { const [from, to] = k.split(">"); return { from, to, w }; }).sort((x, y) => y.w - x.w);
 
+  /* Externe Dienste als eigene Knoten */
+  const realHosts = [...urlHosts].filter(h => !/(googleapis|gstatic|fonts|cdn)/.test(h));
+  extUse.forEach(({ x, from }, k) => {
+    const id = "x_" + k;
+    let label = x.name;
+    if (x.id === "http") label = realHosts.length ? "API · " + realHosts[0] : "Backend-API";
+    else if (x.name !== x.label) label = x.name;
+    nodes.push({ id, key: id, path: "", label, cat: "external", files: [], bytes: 0, main: x.label, code: 0, isDir: false, domain: "", kind: "ext", group: CATS.external.label, verb: x.verb });
+    from.forEach((w, fid) => allEdges.push({ from: fid, to: id, w, ext: true }));
+  });
+  /* Nutzer → Einstieg (nur bei Oberflächen-Projekten) */
+  const hasUi = files.some(f => /\.(html|tsx|jsx|vue|svelte|astro)$/.test(f.path) && !isTest(f.path));
+  const SIDE = new Set(["tooling", "tests", "infra", "docs"]);
+  const entryNode = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && n.files.some(f => ENTRY.test(f.path) && isSrc(f.path)))
+    .sort((x, y) => ((y.cat === "frontend") - (x.cat === "frontend")) || (x.path.split("/").length - y.path.split("/").length) || (y.code - x.code))[0];
+  if (hasUi && entryNode) {
+    /* bevorzugt die App-Shell, die die meisten anderen Bausteine einbindet */
+    const outDeg = id => allEdges.filter(e => e.from === id && !e.ext).length;
+    const shell = nodes.filter(n => n.kind === "comp" && !SIDE.has(n.cat) && /App-Shell|Einstieg/.test(n.label)).sort((x, y) => outDeg(y.id) - outDeg(x.id))[0] || entryNode;
+    nodes.push({ id: "u_user", key: "u_user", path: "", label: "Nutzer", cat: "user", files: [], bytes: 0, main: null, code: 0, isDir: false, domain: "", kind: "user", group: "" });
+    allEdges.push({ from: "u_user", to: shell.id, w: 0, user: true });
+  }
+
+  /* Beziehungen ausdünnen: pro Quelle die stärksten, dazu alle deutlich starken; Verb nach Ziel */
+  const byId = new Map(nodes.map(n => [n.id, n]));
+  const internal = allEdges.filter(e => !e.ext && !e.user && byId.get(e.from).cat !== "config" && byId.get(e.to).cat !== "config");
+  const maxW = Math.max(1, ...internal.map(e => e.w));
+  const keep = new Set();
+  const bySrc = new Map(); internal.forEach(e => { if (!bySrc.has(e.from)) bySrc.set(e.from, []); bySrc.get(e.from).push(e); });
+  bySrc.forEach(list => list.sort((x, y) => y.w - x.w).slice(0, 2).forEach(e => keep.add(e)));
+  internal.forEach(e => { if (e.w >= maxW * 0.35) keep.add(e); });
+  const compCount = nodes.filter(n => n.kind === "comp" && n.code).length;
+  let edges = [...keep].sort((x, y) => y.w - x.w).slice(0, Math.round(compCount * 1.4));
+  /* Transitive Abkürzungen entfernen: a→c fällt weg, wenn a→b→c existiert und a→c schwach ist */
+  const has2 = (x, y) => edges.some(e => e.from === x && e.to === y);
+  edges = edges.filter(e => !(e.w <= 2 && edges.some(m => m.from === e.from && m.to !== e.to && has2(m.to, e.to) && m.w >= e.w)));
+  /* Externe Dienste: nur die zwei Bausteine, die sie am stärksten nutzen */
+  const extBy = new Map(); allEdges.filter(e => e.ext).forEach(e => { if (!extBy.has(e.to)) extBy.set(e.to, []); extBy.get(e.to).push(e); });
+  const side = e => (SIDE.has(byId.get(e.from).cat) ? 1 : 0);
+  extBy.forEach(list => edges.push(...list.sort((x, y) => side(x) - side(y) || y.w - x.w).slice(0, 2)));
+  edges.push(...allEdges.filter(e => e.user));
+  const verb = (e) => {
+    if (e.user) return "nutzt";
+    const t = byId.get(e.to);
+    if (e.ext) return t.verb || "nutzt";
+    if (/model|types?|entities|schema/i.test(t.path)) return "verwendet";
+    if (t.cat === "backend" || /services?|store|state|api/i.test(basename(t.path)) || /\.(service|store|api|client)\./.test(t.main || "")) return "ruft auf";
+    if (t.cat === "frontend") return /(Dateien)|Shell/.test(byId.get(e.from).label) ? "zeigt" : "bindet ein";
+    if (t.cat === "config" || /environ|config/i.test(t.path)) return "liest Konfig";
+    return "nutzt";
+  };
+  edges.forEach(e => { e.verb = verb(e); });
+  allEdges.forEach(e => { if (!e.verb) e.verb = verb(e); });
   /* Stack */
   const has = rx => files.some(f => rx.test(f.path));
   const deps = new Set(data.deps || []);
@@ -251,11 +387,12 @@ function analyze(data) {
   const scored = checks.filter(c => c.s !== "na");
   const score = Math.round(scored.reduce((a, c) => a + (c.s === "ok" ? 1 : c.s === "warn" ? 0.5 : 0), 0) / Math.max(1, scored.length) * 100);
 
-  return { files, fileSet, total, langs, nodes, edges, allEdges, fileEdges, fileComp, nodeByKey, stack: STACK, checks, score, code: code.length, tests: tests.length, analysed, resolved };
+  return { compCount, files, fileSet, total, langs, nodes, edges, allEdges, fileEdges, fileComp, nodeByKey, stack: STACK, checks, score, code: code.length, tests: tests.length, analysed, resolved };
 }
 
 /* ============ Mermaid kompilieren ============ */
 function esc(s) { return String(s).replace(/[&]/g, "and").replace(/"/g, "#quot;").replace(/</g, "#lt;").replace(/>/g, "#gt;").replace(/#(?!quot;|lt;|gt;)/g, "#35;").replace(/[\[\]{}|]/g, " "); }
+function mixHex(a, b, t) { const p = h => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)); const x = p(a), y = p(b); return "#" + x.map((v, i) => Math.round(v * t + y[i] * (1 - t)).toString(16).padStart(2, "0")).join(""); }
 function compileMermaid(ast, dir) {
   const L = [`flowchart ${dir}`];
   const byGroup = new Map();
@@ -268,8 +405,8 @@ function compileMermaid(ast, dir) {
     L.push(`  subgraph g${gi++}["${esc(g)}"]`);
     L.push(`    direction ${dir === "TD" ? "LR" : "TB"}`);
     for (const n of byGroup.get(g)) {
-      const sub = n.sub ? `<br/><small>${esc(n.sub)}</small>` : "";
-      const shape = n.cat === "config" ? [`[/"`, `"/]`] : n.cat === "core" ? [`[("`, `")]`] : [`["`, `"]`];
+      const sub = n.main ? `<br/><small>${esc(n.main)}</small>` : n.sub ? `<br/><small>${esc(n.sub)}</small>` : "";
+      const shape = n.cat === "user" ? [`(("`, `"))`] : n.cat === "external" ? [`[("`, `")]`] : n.cat === "config" ? [`[/"`, `"/]`] : [`["`, `"]`];
       L.push(`    ${n.id}${shape[0]}<b>${esc(n.label)}</b>${sub}${shape[1]}`);
     }
     L.push("  end");
@@ -281,7 +418,7 @@ function compileMermaid(ast, dir) {
     L.push(`  ${e.from} ${heavy ? "==>" : "-->"}${lbl} ${e.to}`);
   }
   for (const c of CAT_ORDER) {
-    L.push(`  classDef ${c} fill:${solid("--c-" + c + "-bg")},stroke:${solid("--c-" + c)},stroke-width:1.5px,color:${solid("--label")}`);
+    L.push(`  classDef ${c} fill:${mixHex(solid("--c-" + c), solid("--surface"), 0.16)},stroke:${solid("--c-" + c)},stroke-width:1.5px,color:${solid("--text")}`);
     const ids = ast.nodes.filter(n => n.cat === c).map(n => n.id);
     if (ids.length) L.push(`  class ${ids.join(",")} ${c}`);
   }
@@ -289,11 +426,11 @@ function compileMermaid(ast, dir) {
 }
 function heuristicAst(A) {
   const linked = new Set(A.edges.flatMap(e => [e.from, e.to]));
-  const nodes = A.nodes.filter(n => n.files.length > 0).map(n => ({
-    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir,
-    sub: `${fmtInt(n.files.length)} Dateien · ${fmtBytes(n.bytes)}`, linked: linked.has(n.id),
+  const nodes = A.nodes.filter(n => n.files.length > 0 || n.kind !== "comp").map(n => ({
+    id: n.id, label: n.label, cat: n.cat, path: n.path, isDir: n.isDir, group: n.group, kind: n.kind, main: n.main,
+    sub: n.kind === "comp" ? `${fmtInt(n.files.length)} Dateien · ${fmtBytes(n.bytes)}` : "", linked: linked.has(n.id),
   }));
-  return { nodes, edges: A.edges.map(e => ({ ...e, label: String(e.w) })) };
+  return { nodes, edges: A.edges.map(e => ({ from: e.from, to: e.to, w: e.w, label: e.verb })) };
 }
 
 
