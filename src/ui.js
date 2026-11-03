@@ -454,8 +454,11 @@ function zoomBy(f, cx, cy, animated = true) {
 /* ============ Detail panel – springs in from the right, can be flicked away ============ */
 const panelX = spring(1, { eps: 0.002, response: 0.42 }); /* 0 = open, 1 = closed (fraction of the width) */
 const panelEl = $("#panel");
-const panelW = () => panelEl.offsetWidth + 24;
-panelX.onUpdate = v => { panelEl.style.transform = `translateX(${(v * panelW()).toFixed(1)}px)`; };
+const MOBILE = matchMedia("(max-width:720px)");
+/* desktop: slides in from the right · phone: bottom sheet that slides up */
+const panelW = () => (MOBILE.matches ? panelEl.offsetHeight : panelEl.offsetWidth) + 24;
+panelX.onUpdate = v => { panelEl.style.transform = MOBILE.matches ? `translateY(${(v * panelW()).toFixed(1)}px)` : `translateX(${(v * panelW()).toFixed(1)}px)`; };
+MOBILE.addEventListener("change", () => panelX.onUpdate(panelX.value));
 panelX.onRest = () => { panelEl.dataset.state = panelX.value >= 0.999 ? "closed" : "open"; };
 function openPanel() { panelEl.dataset.state = "open"; panelX.to(0, { damping: 0.86 }); }
 function closePanel() { panelX.to(1, { damping: 1 }); }
@@ -463,15 +466,17 @@ function closePanel() { panelX.to(1, { damping: 1 }); }
   let d = null;
   const start = e => {
     if (e.target.closest("button,a")) return;
-    panelX.stop(); d = { x: e.clientX, v0: panelX.value, hist: [{ x: e.clientX, t: e.timeStamp }] };
+    const pos = MOBILE.matches ? e.clientY : e.clientX;
+    panelX.stop(); d = { x: pos, v0: panelX.value, hist: [{ x: pos, t: e.timeStamp }] };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const move = e => {
     if (!d) return; const W = panelW();
-    let off = d.v0 * W + (e.clientX - d.x);
-    if (off < 0) off = rubber(off, W); /* soft resistance to the left */
+    const pos = MOBILE.matches ? e.clientY : e.clientX;
+    let off = d.v0 * W + (pos - d.x);
+    if (off < 0) off = rubber(off, W); /* soft resistance against the open direction */
     panelX.set(off / W);
-    d.hist.push({ x: e.clientX, t: e.timeStamp }); if (d.hist.length > 6) d.hist.shift();
+    d.hist.push({ x: pos, t: e.timeStamp }); if (d.hist.length > 6) d.hist.shift();
   };
   const end = e => {
     if (!d) return; const W = panelW(), h = d.hist, a = h[0], b = h[h.length - 1];
@@ -573,8 +578,9 @@ function centerOn(id) {
   const st = $("#stage"), s = Math.max(view.s.target, 0.8);
   view.s.to(s);
   const cx = parseFloat(c.style.left) + c.offsetWidth / 2, cy = parseFloat(c.style.top) + c.offsetHeight / 2;
-  const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
-  view.x.to(free / 2 - cx * s); view.y.to(st.clientHeight / 2 - cy * s);
+  const sheet = MOBILE.matches ? panelEl.offsetHeight : 0;
+  const free = st.clientWidth - (!MOBILE.matches && st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
+  view.x.to(free / 2 - cx * s); view.y.to((st.clientHeight - sheet) / 2 - cy * s);
 }
 
 /* ============ Architecture guide & tour (no AI: derived from code and docs) ============ */
@@ -599,7 +605,7 @@ function focusNodes(ids) {
   const st = $("#stage"), cs = ids.map(id => CARD_ELS.get(id)).filter(Boolean); if (!cs.length) return;
   const x0 = Math.min(...cs.map(c => parseFloat(c.style.left))), y0 = Math.min(...cs.map(c => parseFloat(c.style.top)));
   const x1 = Math.max(...cs.map(c => parseFloat(c.style.left) + c.offsetWidth)), y1 = Math.max(...cs.map(c => parseFloat(c.style.top) + c.offsetHeight));
-  const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 30 : 0), fh = st.clientHeight;
+  const free = st.clientWidth - (!MOBILE.matches && st.clientWidth > 760 ? panelEl.offsetWidth + 30 : 0), fh = st.clientHeight - (MOBILE.matches ? panelEl.offsetHeight : 0);
   const s = Math.min(1, Math.max(0.35, Math.min((free - 80) / Math.max(1, x1 - x0), (fh - 170) / Math.max(1, y1 - y0))));
   view.s.to(s); view.x.to(free / 2 - (x0 + x1) / 2 * s); view.y.to(fh / 2 - (y0 + y1) / 2 * s + 24);
 }
@@ -988,6 +994,35 @@ $("#dirInput").addEventListener("change", async e => {
   e.target.value = "";
 });
 $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE); };
+
+/* ============ Phone: folded search, overflow menu, collapsible summary and toolbar ============ */
+(function phoneChrome() {
+  const top = $(".top"), sBtn = $("#mSearchBtn"), menuBtn = $("#mMenuBtn"), menu = $("#mMenu"), input = $("#repoInput");
+  const setSearch = on => { top.classList.toggle("searching", on); sBtn.setAttribute("aria-expanded", on); if (on) setTimeout(() => input.focus(), 30); else if (document.activeElement === input) input.blur(); };
+  sBtn.addEventListener("click", () => setSearch(!top.classList.contains("searching")));
+  input.addEventListener("blur", () => setTimeout(() => { if (MOBILE.matches && !input.value.trim() && !top.querySelector(".actions").contains(document.activeElement) && $("#tokenPop").dataset.open !== "true") setSearch(false); }, 180));
+  const setMenu = on => { menu.dataset.open = on; menuBtn.setAttribute("aria-expanded", on); if (on) menu.querySelector("button")?.focus(); };
+  menuBtn.addEventListener("click", e => { e.stopPropagation(); setMenu(menu.dataset.open !== "true"); });
+  menu.addEventListener("keydown", e => {
+    const items = [...menu.querySelectorAll("button")], i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    if (e.key === "Escape") { e.stopPropagation(); setMenu(false); menuBtn.focus(); }
+  });
+  document.addEventListener("pointerdown", e => { if (!e.target.closest("#mMenu,#mMenuBtn")) setMenu(false); if (!e.target.closest(".controls")) closeView(); });
+  $("#mFolder").onclick = () => { setMenu(false); $("#dirInput").click(); };
+  $("#mExample").onclick = () => { setMenu(false); $("#sampleBtn").click(); };
+  $("#mToken").onclick = () => { setMenu(false); setSearch(true); setTimeout(() => toggleToken(true), 60); };
+  /* summary card folds to a single line */
+  const sum = $("#summary"), sumT = $("#sumToggle");
+  sumT.addEventListener("click", () => { const on = !sum.classList.contains("open"); sum.classList.toggle("open", on); $(".hud").classList.toggle("sum-open", on); sumT.setAttribute("aria-expanded", on); sumT.setAttribute("aria-label", on ? "Hide project details" : "Show project details"); });
+  /* toolbar: only Guide and View stay visible, the rest drops down */
+  const ctl = $(".controls"), vBtn = $("#viewBtn");
+  function closeView() { ctl.classList.remove("open"); vBtn.setAttribute("aria-expanded", "false"); }
+  vBtn.addEventListener("click", () => { const on = !ctl.classList.contains("open"); ctl.classList.toggle("open", on); vBtn.setAttribute("aria-expanded", on); if (on) requestAnimationFrame(() => knobDir(false)); });
+  addEventListener("keydown", e => { if (e.key === "Escape" && ctl.classList.contains("open")) closeView(); });
+  EXT.onShow.push(() => { if (MOBILE.matches) { setSearch(false); sum.classList.remove("open"); $(".hud").classList.remove("sum-open"); sumT.setAttribute("aria-expanded", "false"); closeView(); } });
+})();
 
 /* ============ Resize & theme ============ */
 let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "arch") fitView(true); }, 120); });

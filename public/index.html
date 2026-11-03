@@ -451,13 +451,74 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
 
 /* ===== Responsive ===== */
 @media (max-width:900px){.span4,.span5,.span7,.span8,.span6{grid-column:span 12}.checks{grid-template-columns:minmax(0,1fr)}}
+.m-only{display:none!important}
+.ctl-more{display:contents}
+.mmenu{width:240px;padding:4px;display:flex;flex-direction:column}
+.mmenu button{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:10px;border-radius:3px;font-size:13.5px;text-align:left;cursor:pointer;color:var(--text)}
+.mmenu button:hover,.mmenu button:focus-visible{background:var(--hover)}
+.mmenu button:active{transform:translateY(1px)}
+.mmenu svg{width:15px;height:15px;color:var(--text-2)}
+
+/* Phone: the architecture takes the whole screen; everything else is folded away */
 @media (max-width:720px){
-  .crumbs .app-name,.crumbs .sep.first{display:none}
-  .actions{flex:1 1 100%;justify-content:stretch}
-  .cmd,.cmd:focus-within{flex:1 1 100%;width:auto}
-  .summary p,.kpis .opt{display:none}
+  body{padding-block:0}
+  .app{min-height:0}
+  .m-only{display:inline-flex!important}
+  .top{gap:var(--s2);padding-block:var(--s2) 0}
+  .crumbs{flex:1 1 auto;gap:var(--s2)}
+  .crumbs .app-name,.crumbs .sep.first,.env{display:none}
+  .crumbs .proj{font-size:12.5px}
+  .m-tools{margin-left:auto;gap:6px;align-items:center}
+  .m-tools .btn.icon{width:36px;height:36px}
+  .m-tools .anchor{display:inline-block}
+  .mmenu{right:0;left:auto}
+  /* search row appears only after tapping the magnifier */
+  .actions{display:none;flex:1 1 100%;gap:6px;flex-wrap:nowrap}
+  .top.searching .actions{display:flex;position:relative;z-index:6;animation:rise .25s var(--out) both}
+  .top.searching .m-tools #mSearchBtn{color:var(--accent);border-color:var(--accent)}
+  .actions label[for="dirInput"],#sampleBtn{display:none}
+  .cmd,.cmd:focus-within{flex:1 1 auto;width:auto;height:40px}
+  .actions .btn{height:40px}
+  .tabs{gap:0}
+  .tab{padding:8px 8px 9px;font-size:12.5px;gap:5px}
+  .hud.sum-open .controls{display:none}
+  .hud.sum-open .leftcol{max-width:none}
+  .tab svg{width:14px;height:14px}
+  .tab .count{display:none}
+  /* full-bleed sheet filling the remaining height */
+  .workspace{margin-top:0;margin-inline:calc(-1 * max(16px,env(safe-area-inset-left,0px))) calc(-1 * max(16px,env(safe-area-inset-right,0px)));border-radius:0;border-width:0}
+  .hud{left:max(10px,env(safe-area-inset-left,0px));right:max(10px,env(safe-area-inset-right,0px));top:10px;flex-wrap:nowrap;gap:8px}
+  .leftcol{flex:1 1 auto;min-width:0}
+  /* summary folded to one line: repo + score */
+  .summary{position:relative;padding:7px 40px 7px 10px;max-width:none}
+  .summary .eyebrow,.summary p,.summary .kpis,.summary .explain{display:none}
+  .summary h1{margin:0;font-size:14px;letter-spacing:-.005em;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+  .summary h1 .tag-example{display:none}
+  .summary.open{padding:10px 40px 12px 12px}
+  .summary.open .eyebrow,.summary.open p,.summary.open .explain{display:flex}
+  .summary.open .kpis{display:flex}
+  .summary.open p{display:-webkit-box;-webkit-line-clamp:3}
+  .summary.open h1{white-space:normal;margin:var(--s1) 0 2px;font-size:16px}
+  .sum-toggle{position:absolute;right:4px;top:4px;width:32px;height:32px;border:0;background:none;color:var(--text-2);border-radius:3px;place-items:center;justify-content:center;align-items:center;cursor:pointer}
+  .sum-toggle svg{width:15px;height:15px;transition:transform .25s var(--out)}
+  .summary.open .sum-toggle svg{transform:rotate(180deg)}
+  /* toolbar reduced to Guide + View; the rest drops down */
+  .controls{position:relative;flex:none;padding:4px;gap:4px;flex-wrap:nowrap}
+  .controls .btn.sm{height:32px}
+  .ctl-more{display:none;position:absolute;right:-1px;top:calc(100% + 6px);z-index:8;flex-direction:column;align-items:stretch;gap:6px;padding:8px;width:220px;background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r);box-shadow:var(--shadow-lg)}
+  .controls.open .ctl-more{display:flex;animation:rise .2s var(--out) both}
+  .ctl-more .seg{align-self:flex-start}
+  .ctl-more .btn{justify-content:flex-start}
+  .ctl-more #copyMm{width:auto;padding:0 11px;gap:7px}
+  .ctl-more #copyMm::after{content:"Copy Mermaid source"}
   .legend{display:none}
-  .panel{top:auto;left:10px;width:auto;max-width:none;height:72%}
+  .zoom{left:max(10px,env(safe-area-inset-left,0px));bottom:max(10px,env(safe-area-inset-bottom,0px))}
+  .log{right:10px;bottom:10px;width:calc(100% - 20px)}
+  /* detail panel becomes a bottom sheet that slides up and can be swiped down */
+  .panel{top:auto;left:0;right:0;bottom:0;width:auto;max-width:none;height:min(78%,640px);border-radius:12px 12px 0 0;border-width:1px 0 0;transform:translateY(calc(100% + 24px))}
+  .panel::before{content:"";position:absolute;top:6px;left:50%;width:36px;height:4px;margin-left:-18px;border-radius:2px;background:var(--border-2);z-index:1}
+  .panel .ph{padding-top:20px}
+  .panel .pb{padding-bottom:max(var(--s5),env(safe-area-inset-bottom,0px))}
 }
 @media (prefers-reduced-motion:reduce){*{animation-duration:1ms!important;animation-iteration-count:1!important;transition-duration:1ms!important}.flow{display:none}}
 @media (prefers-contrast:more){.card,.box,.floating,.panel{border-color:var(--text-2)}}
@@ -478,6 +539,9 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
   <symbol id="i-play" viewBox="0 0 16 16"><path fill="currentColor" d="M4.5 2.8v10.4c0 .6.6.9 1.1.6l8-5.2c.4-.3.4-.9 0-1.2l-8-5.2c-.5-.3-1.1 0-1.1.6z"/></symbol>
   <symbol id="i-clock" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="8" cy="8" r="6"/><path d="M8 4.8V8l2.2 1.4"/></g></symbol>
   <symbol id="i-repo" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" d="M3.5 2.5h8.5v9H5a1.5 1.5 0 0 0-1.5 1.5zM3.5 13a1.5 1.5 0 0 0 1.5 1.5h7v-3M6 5h3"/></symbol>
+  <symbol id="i-more" viewBox="0 0 16 16"><g fill="currentColor"><circle cx="3.5" cy="8" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="12.5" cy="8" r="1.4"/></g></symbol>
+  <symbol id="i-chev" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M2.5 4.5h11M2.5 11.5h11"/><circle cx="6" cy="4.5" r="1.6" fill="var(--surface)"/><circle cx="10.5" cy="11.5" r="1.6" fill="var(--surface)"/></g></symbol>
   <symbol id="i-x" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M4 4l8 8M12 4l-8 8"/></symbol>
   <symbol id="i-plus" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M8 3v10M3 8h10"/></symbol>
   <symbol id="i-minus" viewBox="0 0 16 16"><path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" d="M3 8h10"/></symbol>
@@ -506,6 +570,17 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
       <span class="sep first">/</span>
       <span class="proj" id="repoName">–</span>
       <span class="env" id="envPill"><i></i><span id="envTxt">main</span></span>
+      <span class="m-tools m-only">
+        <button class="btn icon" type="button" id="mSearchBtn" aria-label="Search a repository" aria-expanded="false" aria-controls="loadForm"><svg><use href="#i-search"/></svg></button>
+        <span class="anchor">
+          <button class="btn icon" type="button" id="mMenuBtn" aria-label="More actions" aria-haspopup="menu" aria-expanded="false" aria-controls="mMenu"><svg><use href="#i-more"/></svg></button>
+          <span class="pop mmenu" id="mMenu" role="menu" data-open="false" aria-label="More actions">
+            <button type="button" role="menuitem" id="mFolder"><svg><use href="#i-folder"/></svg>Analyze a local folder</button>
+            <button type="button" role="menuitem" id="mExample"><svg><use href="#i-repo"/></svg>Load the example</button>
+            <button type="button" role="menuitem" id="mToken"><svg><use href="#i-key"/></svg>Token for private repos</button>
+          </span>
+        </span>
+      </span>
     </div>
     <div class="actions">
       <form class="cmd" id="loadForm" role="search" autocomplete="off" novalidate>
@@ -553,6 +628,7 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
       <div class="hud">
         <div class="leftcol">
           <div class="summary floating" id="summary">
+            <button class="sum-toggle m-only" type="button" id="sumToggle" aria-expanded="false" aria-controls="summary" aria-label="Show project details"><svg><use href="#i-chev"/></svg></button>
             <div class="eyebrow" id="srcLabel">Source</div>
             <h1 id="repoTitle">–</h1>
             <p id="repoDesc"></p>
@@ -562,14 +638,17 @@ ul.md{margin:0 0 7px;padding-left:18px;color:var(--text-2)}
           <div class="overview floating" id="overview" hidden></div>
         </div>
         <div class="controls floating">
+          <button class="btn sm" type="button" id="guideBtn" title="Architecture guide"><svg><use href="#i-book"/></svg><span>Guide</span></button>
+          <button class="btn sm m-only" type="button" id="viewBtn" aria-expanded="false" aria-controls="viewMenu"><svg><use href="#i-sliders"/></svg><span>View</span></button>
+          <div class="ctl-more" id="viewMenu">
           <div class="seg" role="group" aria-label="Direction" id="segDir"><span class="knob"></span>
             <button type="button" id="dirAuto" aria-pressed="true" aria-label="Automatic direction">Auto <span>↓</span></button>
             <button type="button" id="dirTD" aria-pressed="false" aria-label="Top to bottom"><svg><use href="#i-down"/></svg></button>
             <button type="button" id="dirLR" aria-pressed="false" aria-label="Left to right"><svg><use href="#i-right"/></svg></button>
           </div>
-          <button class="btn sm" type="button" id="guideBtn" title="Architecture guide"><svg><use href="#i-book"/></svg><span>Guide</span></button>
           <button class="btn sm" type="button" id="sideBtn" aria-pressed="false" hidden><svg><use href="#k-tooling"/></svg><span>Tooling &amp; Tests</span></button>
           <button class="btn sm icon" type="button" id="copyMm" title="Copy Mermaid source" aria-label="Copy Mermaid source"><svg><use href="#i-copy"/></svg></button>
+          </div>
         </div>
       </div>
       <div class="zoom floating" role="group" aria-label="Zoom">
@@ -1907,8 +1986,11 @@ function zoomBy(f, cx, cy, animated = true) {
 /* ============ Detail panel – springs in from the right, can be flicked away ============ */
 const panelX = spring(1, { eps: 0.002, response: 0.42 }); /* 0 = open, 1 = closed (fraction of the width) */
 const panelEl = $("#panel");
-const panelW = () => panelEl.offsetWidth + 24;
-panelX.onUpdate = v => { panelEl.style.transform = `translateX(${(v * panelW()).toFixed(1)}px)`; };
+const MOBILE = matchMedia("(max-width:720px)");
+/* desktop: slides in from the right · phone: bottom sheet that slides up */
+const panelW = () => (MOBILE.matches ? panelEl.offsetHeight : panelEl.offsetWidth) + 24;
+panelX.onUpdate = v => { panelEl.style.transform = MOBILE.matches ? `translateY(${(v * panelW()).toFixed(1)}px)` : `translateX(${(v * panelW()).toFixed(1)}px)`; };
+MOBILE.addEventListener("change", () => panelX.onUpdate(panelX.value));
 panelX.onRest = () => { panelEl.dataset.state = panelX.value >= 0.999 ? "closed" : "open"; };
 function openPanel() { panelEl.dataset.state = "open"; panelX.to(0, { damping: 0.86 }); }
 function closePanel() { panelX.to(1, { damping: 1 }); }
@@ -1916,15 +1998,17 @@ function closePanel() { panelX.to(1, { damping: 1 }); }
   let d = null;
   const start = e => {
     if (e.target.closest("button,a")) return;
-    panelX.stop(); d = { x: e.clientX, v0: panelX.value, hist: [{ x: e.clientX, t: e.timeStamp }] };
+    const pos = MOBILE.matches ? e.clientY : e.clientX;
+    panelX.stop(); d = { x: pos, v0: panelX.value, hist: [{ x: pos, t: e.timeStamp }] };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const move = e => {
     if (!d) return; const W = panelW();
-    let off = d.v0 * W + (e.clientX - d.x);
-    if (off < 0) off = rubber(off, W); /* soft resistance to the left */
+    const pos = MOBILE.matches ? e.clientY : e.clientX;
+    let off = d.v0 * W + (pos - d.x);
+    if (off < 0) off = rubber(off, W); /* soft resistance against the open direction */
     panelX.set(off / W);
-    d.hist.push({ x: e.clientX, t: e.timeStamp }); if (d.hist.length > 6) d.hist.shift();
+    d.hist.push({ x: pos, t: e.timeStamp }); if (d.hist.length > 6) d.hist.shift();
   };
   const end = e => {
     if (!d) return; const W = panelW(), h = d.hist, a = h[0], b = h[h.length - 1];
@@ -2026,8 +2110,9 @@ function centerOn(id) {
   const st = $("#stage"), s = Math.max(view.s.target, 0.8);
   view.s.to(s);
   const cx = parseFloat(c.style.left) + c.offsetWidth / 2, cy = parseFloat(c.style.top) + c.offsetHeight / 2;
-  const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
-  view.x.to(free / 2 - cx * s); view.y.to(st.clientHeight / 2 - cy * s);
+  const sheet = MOBILE.matches ? panelEl.offsetHeight : 0;
+  const free = st.clientWidth - (!MOBILE.matches && st.clientWidth > 760 ? panelEl.offsetWidth + 20 : 0);
+  view.x.to(free / 2 - cx * s); view.y.to((st.clientHeight - sheet) / 2 - cy * s);
 }
 
 /* ============ Architecture guide & tour (no AI: derived from code and docs) ============ */
@@ -2052,7 +2137,7 @@ function focusNodes(ids) {
   const st = $("#stage"), cs = ids.map(id => CARD_ELS.get(id)).filter(Boolean); if (!cs.length) return;
   const x0 = Math.min(...cs.map(c => parseFloat(c.style.left))), y0 = Math.min(...cs.map(c => parseFloat(c.style.top)));
   const x1 = Math.max(...cs.map(c => parseFloat(c.style.left) + c.offsetWidth)), y1 = Math.max(...cs.map(c => parseFloat(c.style.top) + c.offsetHeight));
-  const free = st.clientWidth - (st.clientWidth > 760 ? panelEl.offsetWidth + 30 : 0), fh = st.clientHeight;
+  const free = st.clientWidth - (!MOBILE.matches && st.clientWidth > 760 ? panelEl.offsetWidth + 30 : 0), fh = st.clientHeight - (MOBILE.matches ? panelEl.offsetHeight : 0);
   const s = Math.min(1, Math.max(0.35, Math.min((free - 80) / Math.max(1, x1 - x0), (fh - 170) / Math.max(1, y1 - y0))));
   view.s.to(s); view.x.to(free / 2 - (x0 + x1) / 2 * s); view.y.to(fh / 2 - (y0 + y1) / 2 * s + 24);
 }
@@ -2441,6 +2526,35 @@ $("#dirInput").addEventListener("change", async e => {
   e.target.value = "";
 });
 $("#sampleBtn").onclick = () => { $("#log").dataset.open = "false"; show(SAMPLE); };
+
+/* ============ Phone: folded search, overflow menu, collapsible summary and toolbar ============ */
+(function phoneChrome() {
+  const top = $(".top"), sBtn = $("#mSearchBtn"), menuBtn = $("#mMenuBtn"), menu = $("#mMenu"), input = $("#repoInput");
+  const setSearch = on => { top.classList.toggle("searching", on); sBtn.setAttribute("aria-expanded", on); if (on) setTimeout(() => input.focus(), 30); else if (document.activeElement === input) input.blur(); };
+  sBtn.addEventListener("click", () => setSearch(!top.classList.contains("searching")));
+  input.addEventListener("blur", () => setTimeout(() => { if (MOBILE.matches && !input.value.trim() && !top.querySelector(".actions").contains(document.activeElement) && $("#tokenPop").dataset.open !== "true") setSearch(false); }, 180));
+  const setMenu = on => { menu.dataset.open = on; menuBtn.setAttribute("aria-expanded", on); if (on) menu.querySelector("button")?.focus(); };
+  menuBtn.addEventListener("click", e => { e.stopPropagation(); setMenu(menu.dataset.open !== "true"); });
+  menu.addEventListener("keydown", e => {
+    const items = [...menu.querySelectorAll("button")], i = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
+    if (e.key === "Escape") { e.stopPropagation(); setMenu(false); menuBtn.focus(); }
+  });
+  document.addEventListener("pointerdown", e => { if (!e.target.closest("#mMenu,#mMenuBtn")) setMenu(false); if (!e.target.closest(".controls")) closeView(); });
+  $("#mFolder").onclick = () => { setMenu(false); $("#dirInput").click(); };
+  $("#mExample").onclick = () => { setMenu(false); $("#sampleBtn").click(); };
+  $("#mToken").onclick = () => { setMenu(false); setSearch(true); setTimeout(() => toggleToken(true), 60); };
+  /* summary card folds to a single line */
+  const sum = $("#summary"), sumT = $("#sumToggle");
+  sumT.addEventListener("click", () => { const on = !sum.classList.contains("open"); sum.classList.toggle("open", on); $(".hud").classList.toggle("sum-open", on); sumT.setAttribute("aria-expanded", on); sumT.setAttribute("aria-label", on ? "Hide project details" : "Show project details"); });
+  /* toolbar: only Guide and View stay visible, the rest drops down */
+  const ctl = $(".controls"), vBtn = $("#viewBtn");
+  function closeView() { ctl.classList.remove("open"); vBtn.setAttribute("aria-expanded", "false"); }
+  vBtn.addEventListener("click", () => { const on = !ctl.classList.contains("open"); ctl.classList.toggle("open", on); vBtn.setAttribute("aria-expanded", on); if (on) requestAnimationFrame(() => knobDir(false)); });
+  addEventListener("keydown", e => { if (e.key === "Escape" && ctl.classList.contains("open")) closeView(); });
+  EXT.onShow.push(() => { if (MOBILE.matches) { setSearch(false); sum.classList.remove("open"); $(".hud").classList.remove("sum-open"); sumT.setAttribute("aria-expanded", "false"); closeView(); } });
+})();
 
 /* ============ Resize & theme ============ */
 let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { moveTabInd(false); knobMode(false); knobDir(false); if (TAB === "tree") renderTreemap(); if (TAB === "arch") fitView(true); }, 120); });

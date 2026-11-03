@@ -46,6 +46,8 @@ Also:
 | Focus the search | `/` or ⌘/Ctrl + K |
 | Pick a suggestion | ↑ / ↓, Enter; Esc closes the list, a second Esc clears the field |
 
+On phones the architecture takes the whole screen: the header shrinks to one row (search behind the magnifier, Folder/Example/Token in the ⋯ menu), the summary folds to a single line, the toolbar keeps only Guide and View, and the detail panel becomes a bottom sheet you can swipe down.
+
 The search field is an accessible combobox: it suggests recently analyzed repos (stored only in your browser) and examples, recognizes pasted GitHub URLs as `owner/repo`, and validates the input inline with a message read out by screen readers.
 
 Add `?repo=owner/repo` to the URL to analyze a repo directly.
